@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/rootOverlayContainer"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
     android:background="@drawable/bg_overlay_card"
-    android:padding="12dp"
-    android:minWidth="280dp">
+    android:padding="10dp"
+    android:minWidth="260dp"
+    android:minHeight="80dp">
 
-    <!-- Top Action Bar (Drag Handle + Quick Controls) -->
+    <!-- Top Action Bar (Drag Handle + Fold + Controls) -->
     <LinearLayout
         android:id="@+id/headerControlBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="6dp">
+        android:paddingBottom="4dp">
 
         <!-- Live Status Indicator & Pair Badge -->
         <View
@@ -36,11 +36,22 @@
             android:textStyle="bold" />
 
         <!-- Quick Action Buttons -->
+        <!-- Fold / Collapse Toggle (收缩 / 展开) -->
+        <ImageView
+            android:id="@+id/btnFold"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_fold_up"
+            android:tint="#94A3B8"
+            android:padding="2dp"
+            android:contentDescription="Fold/Expand"
+            android:layout_marginEnd="6dp" />
+
         <!-- Pause / Resume -->
         <ImageView
             android:id="@+id/btnPause"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:src="@android:drawable/ic_media_pause"
             android:tint="#94A3B8"
             android:padding="2dp"
@@ -50,8 +61,8 @@
         <!-- Lock / Touch-Through Mode -->
         <ImageView
             android:id="@+id/btnLock"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:src="@android:drawable/ic_lock_lock"
             android:tint="#94A3B8"
             android:padding="2dp"
@@ -61,19 +72,20 @@
         <!-- Close / Dismiss -->
         <ImageView
             android:id="@+id/btnClose"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
             android:tint="#94A3B8"
             android:padding="2dp"
             android:contentDescription="Close" />
     </LinearLayout>
 
-    <!-- Subtitle Content Container -->
+    <!-- Subtitle Content Container (Expands or Folds) -->
     <LinearLayout
         android:id="@+id/contentContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_below="@id/headerControlBar"
         android:orientation="vertical">
 
         <!-- Original Speech Text (Optional / Configurable) -->
@@ -81,9 +93,9 @@
             android:id="@+id/tvOriginalText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Waiting for voice input..."
+            android:text="等待语音输入中…"
             android:textColor="#94A3B8"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:lineSpacingExtra="2dp"
             android:layout_marginBottom="4dp" />
 
@@ -94,13 +106,35 @@
             android:layout_height="wrap_content"
             android:text="正在聆听并实时同传中…"
             android:textColor="#FACC15"
-            android:textSize="18sp"
+            android:textSize="17sp"
             android:textStyle="bold"
             android:lineSpacingExtra="3dp"
             android:shadowColor="#000000"
             android:shadowDx="2"
             android:shadowDy="2"
             android:shadowRadius="4" />
+
+        <!-- Live Status & Diagnostic Hint Bar -->
+        <TextView
+            android:id="@+id/tvStatusHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🎤 监听麦克风中 · 点击主页可模拟测试"
+            android:textColor="#64748B"
+            android:textSize="10sp"
+            android:layout_marginTop="4dp" />
     </LinearLayout>
 
-</LinearLayout>
+    <!-- Bottom-Right Stretch & Resize Handle (拉伸调节大小手柄) -->
+    <ImageView
+        android:id="@+id/ivResizeHandle"
+        android:layout_width="22dp"
+        android:layout_height="22dp"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentBottom="true"
+        android:src="@drawable/ic_resize_handle"
+        android:tint="#64748B"
+        android:contentDescription="Resize Handle"
+        android:padding="2dp" />
+
+</RelativeLayout>

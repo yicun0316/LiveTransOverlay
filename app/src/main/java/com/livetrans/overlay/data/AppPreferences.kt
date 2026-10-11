@@ -13,7 +13,8 @@ enum class AudioSourceType {
 }
 
 enum class TranslationEngineType {
-    LOCAL_ML_KIT,    // 100% Free, offline, on-device Google ML Kit (EN, JA, ZH)
+    FREE_WEB,        // 100% Free Web API (instant, no model download, works everywhere)
+    LOCAL_ML_KIT,    // On-device Google ML Kit (EN, JA, ZH)
     CLOUD_DEEPL,     // DeepL Free API (high quality translation)
     CLOUD_LLM        // OpenAI / DeepSeek API (contextual AI translation)
 }
@@ -45,7 +46,10 @@ class AppPreferences(context: Context) {
             originalTextColor = prefs.getInt("style_original_color", Color.parseColor("#94A3B8")),
             originalTextSizeSp = prefs.getFloat("style_original_text_size", 14f),
             enableTextShadow = prefs.getBoolean("style_shadow", true),
-            isLockedTouchThrough = prefs.getBoolean("style_is_locked", false)
+            isLockedTouchThrough = prefs.getBoolean("style_is_locked", false),
+            windowWidthDp = prefs.getInt("style_window_width", 320),
+            windowHeightDp = prefs.getInt("style_window_height", 160),
+            isFolded = prefs.getBoolean("style_is_folded", false)
         )
     }
 
@@ -59,6 +63,9 @@ class AppPreferences(context: Context) {
             putFloat("style_original_text_size", style.originalTextSizeSp)
             putBoolean("style_shadow", style.enableTextShadow)
             putBoolean("style_is_locked", style.isLockedTouchThrough)
+            putInt("style_window_width", style.windowWidthDp)
+            putInt("style_window_height", style.windowHeightDp)
+            putBoolean("style_is_folded", style.isFolded)
             apply()
         }
         _styleFlow.value = style
@@ -99,11 +106,11 @@ class AppPreferences(context: Context) {
     }
 
     fun loadEngineType(): TranslationEngineType {
-        val name = prefs.getString("engine_type", TranslationEngineType.LOCAL_ML_KIT.name)
+        val name = prefs.getString("engine_type", TranslationEngineType.FREE_WEB.name)
         return try {
-            TranslationEngineType.valueOf(name ?: TranslationEngineType.LOCAL_ML_KIT.name)
+            TranslationEngineType.valueOf(name ?: TranslationEngineType.FREE_WEB.name)
         } catch (_: Exception) {
-            TranslationEngineType.LOCAL_ML_KIT
+            TranslationEngineType.FREE_WEB
         }
     }
 

@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="20"
+    android:viewportHeight="20">
+    <!-- Diagonal grip lines for resize handle -->
+    <path
+        android:fillColor="#64748B"
+        android:pathData="M16,14 L14,16 M16,10 L10,16 M16,6 L6,16"
+        android:strokeColor="#64748B"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"/>
+</vector>
