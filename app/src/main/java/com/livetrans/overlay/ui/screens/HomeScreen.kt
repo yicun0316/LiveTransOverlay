@@ -302,14 +302,46 @@ fun HomeScreen(
                         )
                     }
 
+                    Text(text = "快速预设 (一键填入服务与模型):", color = textSecondary, fontSize = 11.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = baseUrlInput.contains("siliconflow"),
+                            onClick = {
+                                baseUrlInput = "https://api.siliconflow.cn/v1"
+                                modelInput = "Qwen/Qwen2.5-7B-Instruct"
+                            },
+                            label = { Text("⚡ 硅基流动 (国内直连免费)", fontSize = 10.sp) }
+                        )
+                        FilterChip(
+                            selected = baseUrlInput.contains("googleapis"),
+                            onClick = {
+                                baseUrlInput = "https://generativelanguage.googleapis.com/v1beta/openai"
+                                modelInput = "gemini-1.5-flash"
+                            },
+                            label = { Text("🌐 Google Gemini (官方免费)", fontSize = 10.sp) }
+                        )
+                        FilterChip(
+                            selected = baseUrlInput.contains("deepseek"),
+                            onClick = {
+                                baseUrlInput = "https://api.deepseek.com/v1"
+                                modelInput = "deepseek-chat"
+                            },
+                            label = { Text("🤖 DeepSeek", fontSize = 10.sp) }
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Text(text = "API Key (必填):", color = textSecondary, fontSize = 11.sp)
+                    Text(text = "API Key (密钥):", color = textSecondary, fontSize = 11.sp)
                     OutlinedTextField(
                         value = apiKeyInput,
                         onValueChange = { apiKeyInput = it },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("例如 sk-...", color = textSecondary) },
+                        placeholder = { Text("粘贴您的 API Key...", color = textSecondary) },
                         singleLine = true
                     )
 
