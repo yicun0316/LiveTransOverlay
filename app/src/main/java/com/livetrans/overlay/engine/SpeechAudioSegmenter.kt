@@ -5,17 +5,21 @@ import kotlin.math.log10
 import kotlin.math.sqrt
 
 /**
- * 实时语音端点检测与分段器 (Voice Activity Detection & Segmenter)
+ * 实时动态自适应语音端点检测与分段器 (Adaptive Voice Activity Detection & Segmenter)
  * 从 16kHz 16-bit Mono PCM 音频流中动态识别说话起止，自动切分为用于 ASR 语音识别的 WAV 句子音频块。
+ * 针对手机声音外放、轻声说话、远场音频进行灵敏度算法升级：
+ * 1. 动态自适应底噪追踪 (Ambient Noise Tracking)，避免死板的固定分贝阈值。
+ * 2. 环形前置缓冲 (~250ms) 彻底防止吞掉辅音字头。
+ * 3. 缩短最小有效语音切片门限至 250ms，单字/短词/口语短句不漏检。
  */
 class SpeechAudioSegmenter(
-    private val silenceThresholdDb: Float = 35f,
-    private val silenceTimeoutMs: Long = 600L,
-    private val maxSpeechDurationMs: Long = 3800L,
-    private val minSpeechDurationMs: Long = 400L,
+    private val silenceTimeoutMs: Long = 700L,
+    private val maxSpeechDurationMs: Long = 4000L,
+    private val minSpeechDurationMs: Long = 250L,
     private val onSpeechSegmentReady: (ByteArray) -> Unit
 ) {
-    private val preSpeechRingBuffer = java.util.ArrayDeque<ByteArray>(6)
+    private var ambientNoiseDb: Float = 16.0f
+    private val preSpeechRingBuffer = java.util.ArrayDeque<ByteArray>(8)
     private val activeSpeechStream = ByteArrayOutputStream()
     private var isSpeechActive = false
     private var speechStartTimeMs = 0L
@@ -33,20 +37,24 @@ class SpeechAudioSegmenter(
         for (i in 0 until bytesRead step 2) {
             val sample = (chunk[i].toInt() and 0xFF) or (chunk[i + 1].toInt() shl 8)
             val sampleShort = sample.toShort()
-            sum += sampleShort * sampleShort
+            val sLong = sampleShort.toLong()
+            sum += sLong * sLong
         }
         val rms = sqrt(sum / samples.coerceAtLeast(1))
-        val db = if (rms > 1.0) (20.0 * log10(rms)).toFloat() else 0f
+        val db = if (rms > 1.0) (20.0 * log10(rms)).toFloat().coerceIn(0f, 100f) else 0f
 
         val now = System.currentTimeMillis()
 
-        if (db >= silenceThresholdDb) {
+        // 动态自适应判定：环境底噪 + 3.5dB，或绝对能量 >= 18.0dB
+        val speechThreshold = maxOf(ambientNoiseDb + 3.5f, 18.0f)
+
+        if (db >= speechThreshold) {
             // 声音超过阈值：检测到说话
             if (!isSpeechActive) {
                 isSpeechActive = true
                 speechStartTimeMs = now
                 activeSpeechStream.reset()
-                // 拼接语音前置缓冲，防止吞掉字头音节
+                // 拼接语音前置缓冲，防止吞掉字头音节 (~250ms)
                 for (prev in preSpeechRingBuffer) {
                     activeSpeechStream.write(prev)
                 }
@@ -55,7 +63,11 @@ class SpeechAudioSegmenter(
             lastSpeechTimeMs = now
             activeSpeechStream.write(chunk)
         } else {
-            // 声音低于阈值
+            // 低于阈值：在非大音量时慢速跟踪环境底噪
+            if (db < ambientNoiseDb + 5f) {
+                ambientNoiseDb = (ambientNoiseDb * 0.96f + db * 0.04f).coerceIn(8f, 32f)
+            }
+
             if (isSpeechActive) {
                 activeSpeechStream.write(chunk)
                 val silenceElapsed = now - lastSpeechTimeMs
@@ -64,8 +76,8 @@ class SpeechAudioSegmenter(
                     finalizeSegment()
                 }
             } else {
-                // 未处于说话状态：滚动保存前置缓冲 (~200ms)
-                if (preSpeechRingBuffer.size >= 5) {
+                // 未处于说话状态：滚动保存前置缓冲 (~250ms)
+                if (preSpeechRingBuffer.size >= 6) {
                     preSpeechRingBuffer.pollFirst()
                 }
                 preSpeechRingBuffer.addLast(chunk)
@@ -99,6 +111,7 @@ class SpeechAudioSegmenter(
         isSpeechActive = false
         activeSpeechStream.reset()
         preSpeechRingBuffer.clear()
+        ambientNoiseDb = 16.0f
     }
 
     companion object {
@@ -139,7 +152,10 @@ class SpeechAudioSegmenter(
             header[42] = ((totalAudioLen shr 16) and 0xffL).toByte()
             header[43] = ((totalAudioLen shr 24) and 0xffL).toByte()
 
-            return header + pcmData
+            val wavOut = ByteArray(44 + pcmData.size)
+            System.arraycopy(header, 0, wavOut, 0, 44)
+            System.arraycopy(pcmData, 0, wavOut, 44, pcmData.size)
+            return wavOut
         }
     }
 }

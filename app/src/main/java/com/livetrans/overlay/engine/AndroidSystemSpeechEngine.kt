@@ -190,5 +190,13 @@ class AndroidSystemSpeechEngine(
 
     companion object {
         private const val TAG = "SystemSpeechEngine"
+
+        fun isAvailable(context: Context): Boolean {
+            return try {
+                SpeechRecognizer.isRecognitionAvailable(context)
+            } catch (e: Exception) {
+                false
+            }
+        }
     }
 }

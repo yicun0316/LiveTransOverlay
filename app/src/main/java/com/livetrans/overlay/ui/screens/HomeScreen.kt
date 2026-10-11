@@ -411,10 +411,11 @@ fun HomeScreen(
 
                                 // Real-time decibel meter wave
                                 val waveBars = when {
-                                    voiceRecordDb > 62f -> " ▂▃▅▆▇"
-                                    voiceRecordDb > 48f -> " ▂▃▅"
-                                    voiceRecordDb > 35f -> " ▂▃"
-                                    voiceRecordDb > 20f -> " ▂"
+                                    voiceRecordDb > 60f -> " ▂▃▅▆▇"
+                                    voiceRecordDb > 45f -> " ▂▃▅▆"
+                                    voiceRecordDb > 32f -> " ▂▃▅"
+                                    voiceRecordDb > 22f -> " ▂▃"
+                                    voiceRecordDb > 14f -> " ▂"
                                     else -> "  "
                                 }
                                 Text(
@@ -432,6 +433,10 @@ fun HomeScreen(
                                         if (isVoiceRecording) {
                                             isVoiceRecording = false
                                             return@Button
+                                        }
+
+                                        if (isServiceRunning) {
+                                            Toast.makeText(context, "悬浮同传窗正在后台监听麦克风，实测将共享捕获音频", Toast.LENGTH_SHORT).show()
                                         }
 
                                         isVoiceRecording = true
@@ -469,8 +474,8 @@ fun HomeScreen(
                                             voiceRecordDb = 0f
 
                                             val pcmBytes = pcmStream.toByteArray()
-                                            if (pcmBytes.size < 16000) {
-                                                voiceTestStatusHint = "⚠️ 录音时间过短或未捕获到音频"
+                                            if (pcmBytes.size < 6000) {
+                                                voiceTestStatusHint = "⚠️ 录音时间过短或未捕获到音频 (请确认系统已授予录音权限)"
                                                 return@launch
                                             }
 

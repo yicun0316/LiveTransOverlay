@@ -41,6 +41,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -120,17 +121,20 @@ class LiveSubtitleService : Service() {
             scope = serviceScope,
             onSpeechTextRecognized = ::onSpeechResult,
             onAudioDbLevel = { db ->
-                if (db > 34f && !isPaused) {
+                if (db > 15f && !isPaused) {
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
                         resetSilenceFadeTimer()
                     }
                     val bars = when {
-                        db > 62f -> " ▂▃▅▆▇"
-                        db > 48f -> " ▂▃▅"
+                        db > 60f -> " ▂▃▅▆▇"
+                        db > 45f -> " ▂▃▅▆"
+                        db > 32f -> " ▂▃▅"
+                        db > 22f -> " ▂▃"
                         else -> " ▂"
                     }
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        if (tvStatusHint?.text?.contains("正在极速") != true) {
+                        if (tvStatusHint?.text?.contains("正在极速") != true &&
+                            tvStatusHint?.text?.contains("转写") != true) {
                             tvStatusHint?.text = "🎤 声音捕获中: [$bars ${db.toInt()}dB]"
                         }
                     }
@@ -557,25 +561,25 @@ class LiveSubtitleService : Service() {
             }
         }
 
-        // Observe Language Pair Changes
+        // Observe Language Pair Changes (drop initial emission to prevent startup race)
         serviceScope.launch {
-            app.appPreferences.sourceLangFlow.collectLatest { src ->
+            app.appPreferences.sourceLangFlow.drop(1).collectLatest { src ->
                 val tgt = app.appPreferences.loadTargetLanguage()
                 updateLanguageBadge(src, tgt)
                 startRecognitionPipeline()
             }
         }
 
-        // Observe Audio Source Changes
+        // Observe Audio Source Changes (drop initial emission)
         serviceScope.launch {
-            app.appPreferences.audioSourceFlow.collectLatest {
+            app.appPreferences.audioSourceFlow.drop(1).collectLatest {
                 startRecognitionPipeline()
             }
         }
 
-        // Observe ASR Engine Changes
+        // Observe ASR Engine Changes (drop initial emission)
         serviceScope.launch {
-            app.appPreferences.asrEngineTypeFlow.collectLatest {
+            app.appPreferences.asrEngineTypeFlow.drop(1).collectLatest {
                 startRecognitionPipeline()
             }
         }
