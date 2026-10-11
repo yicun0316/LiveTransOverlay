@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">实时同传字幕</string>
+    <string name="service_notification_channel">实时字幕服务</string>
+    <string name="service_notification_title">实时同传字幕正在运行</string>
+    <string name="service_notification_text">正在监听音频并实时翻译…</string>
+    <string name="action_stop">停止服务</string>
+    <string name="action_pause">暂停</string>
+    <string name="action_resume">继续</string>
+    <string name="lang_zh">简体中文 (ZH)</string>
+    <string name="lang_en">英语 (EN)</string>
+    <string name="lang_ja">日语 (JA)</string>
+    <string name="audio_source_mic">麦克风拾音 (面对面/外放)</string>
+    <string name="audio_source_system">系统音频内录 (刷剧/视频/会议)</string>
+    <string name="overlay_waiting">正在聆听中…</string>
+    <string name="overlay_waiting_trans">实时译文将显示在这里</string>
+</resources>

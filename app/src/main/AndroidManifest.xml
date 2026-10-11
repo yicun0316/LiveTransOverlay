@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Permissions for Audio & Recognition -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Permissions for Floating Window Overlay -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- Foreground Service Permissions (Android 9+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" tools:targetApi="upside_down_cake" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" tools:targetApi="upside_down_cake" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".LiveTransApplication"
+        android:allowBackup="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_launcher_foreground"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LiveTransOverlay">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:theme="@style/Theme.LiveTransOverlay">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Foreground Service managing Audio Recording, Transcription & Overlay -->
+        <service
+            android:name=".service.LiveSubtitleService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection|microphone" />
+
+    </application>
+
+</manifest>

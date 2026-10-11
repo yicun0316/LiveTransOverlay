@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootOverlayContainer"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_overlay_card"
+    android:padding="12dp"
+    android:minWidth="280dp">
+
+    <!-- Top Action Bar (Drag Handle + Quick Controls) -->
+    <LinearLayout
+        android:id="@+id/headerControlBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="6dp">
+
+        <!-- Live Status Indicator & Pair Badge -->
+        <View
+            android:id="@+id/indicatorLive"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:background="@drawable/shape_circle_green"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/tvLanguageBadge"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="EN ➔ ZH"
+            android:textColor="#94A3B8"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+
+        <!-- Quick Action Buttons -->
+        <!-- Pause / Resume -->
+        <ImageView
+            android:id="@+id/btnPause"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@android:drawable/ic_media_pause"
+            android:tint="#94A3B8"
+            android:padding="2dp"
+            android:contentDescription="Pause"
+            android:layout_marginEnd="6dp" />
+
+        <!-- Lock / Touch-Through Mode -->
+        <ImageView
+            android:id="@+id/btnLock"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@android:drawable/ic_lock_lock"
+            android:tint="#94A3B8"
+            android:padding="2dp"
+            android:contentDescription="Lock Touch"
+            android:layout_marginEnd="6dp" />
+
+        <!-- Close / Dismiss -->
+        <ImageView
+            android:id="@+id/btnClose"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:tint="#94A3B8"
+            android:padding="2dp"
+            android:contentDescription="Close" />
+    </LinearLayout>
+
+    <!-- Subtitle Content Container -->
+    <LinearLayout
+        android:id="@+id/contentContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Original Speech Text (Optional / Configurable) -->
+        <TextView
+            android:id="@+id/tvOriginalText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Waiting for voice input..."
+            android:textColor="#94A3B8"
+            android:textSize="14sp"
+            android:lineSpacingExtra="2dp"
+            android:layout_marginBottom="4dp" />
+
+        <!-- Real-Time Translated Subtitle (Prominent, High-Contrast) -->
+        <TextView
+            android:id="@+id/tvTranslatedText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="正在聆听并实时同传中…"
+            android:textColor="#FACC15"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:lineSpacingExtra="3dp"
+            android:shadowColor="#000000"
+            android:shadowDx="2"
+            android:shadowDy="2"
+            android:shadowRadius="4" />
+    </LinearLayout>
+
+</LinearLayout>
