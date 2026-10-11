@@ -13,29 +13,26 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
-/**
- * Optional Cloud Translation Engine supporting:
- * 1. DeepL Free API (high natural translation quality)
- * 2. OpenAI / DeepSeek compatible Chat Completions (contextual simultaneous translation)
- */
 class CloudTranslationEngine(
     private val appPreferences: AppPreferences
 ) : ITranslationEngine {
 
     override val name: String
         get() = when (appPreferences.loadEngineType()) {
-            TranslationEngineType.CLOUD_DEEPL -> "DeepL API (高精度云端)"
-            TranslationEngineType.CLOUD_LLM -> "AI大模型同传 (${appPreferences.llmModelName})"
-            else -> "云端引擎"
+            TranslationEngineType.CLOUD_DEEPL -> "DeepL API"
+            TranslationEngineType.CLOUD_LLM -> "API (${appPreferences.llmModelName})"
+            else -> "云端 API"
         }
 
     override val isLocal: Boolean = false
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .build()
 
     private val gson = Gson()
@@ -43,10 +40,7 @@ class CloudTranslationEngine(
     override suspend fun prepareModel(
         sourceLang: Language,
         targetLang: Language
-    ): Result<Unit> {
-        // Cloud API requires no local model download
-        return Result.success(Unit)
-    }
+    ): Result<Unit> = Result.success(Unit)
 
     override suspend fun translate(
         text: String,
@@ -60,8 +54,15 @@ class CloudTranslationEngine(
         val engineType = appPreferences.loadEngineType()
         when (engineType) {
             TranslationEngineType.CLOUD_DEEPL -> translateViaDeepL(trimmed, sourceLang, targetLang)
-            TranslationEngineType.CLOUD_LLM -> translateViaLLM(trimmed, sourceLang, targetLang)
-            else -> Result.failure(IllegalStateException("Unsupported cloud engine type: $engineType"))
+            TranslationEngineType.CLOUD_LLM -> translateViaLLM(
+                trimmed,
+                sourceLang,
+                targetLang,
+                appPreferences.llmApiKey.trim(),
+                appPreferences.llmBaseUrl.trim(),
+                appPreferences.llmModelName.trim()
+            )
+            else -> Result.failure(IllegalStateException("未配置引擎类型"))
         }
     }
 
@@ -72,7 +73,7 @@ class CloudTranslationEngine(
     ): Result<String> {
         val apiKey = appPreferences.deepLApiKey.trim()
         if (apiKey.isEmpty()) {
-            return Result.failure(IllegalArgumentException("请先在设置中填写 DeepL API Key"))
+            return Result.failure(IllegalArgumentException("请填写 DeepL API Key"))
         }
 
         val url = if (apiKey.endsWith(":fx")) {
@@ -96,48 +97,69 @@ class CloudTranslationEngine(
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return Result.failure(Exception("DeepL API HTTP Error: ${response.code}"))
+                    return Result.failure(Exception("DeepL 错误: HTTP ${response.code}"))
                 }
                 val respBody = response.body?.string() ?: ""
                 val json = gson.fromJson(respBody, JsonObject::class.java)
                 val translations = json.getAsJsonArray("translations")
                 if (translations != null && translations.size() > 0) {
                     val translatedText = translations[0].asJsonObject.get("text").asString
-                    Result.success(translatedText)
+                    Result.success(translatedText.trim())
                 } else {
-                    Result.failure(Exception("Empty translation response from DeepL"))
+                    Result.failure(Exception("DeepL 返回为空"))
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "DeepL translation call failed", e)
+            Log.e(TAG, "DeepL translation failed", e)
             Result.failure(e)
+        }
+    }
+
+    suspend fun testConnection(
+        apiKey: String,
+        baseUrl: String,
+        model: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val start = System.currentTimeMillis()
+        val testText = "Hello, this is a live translation test."
+        val res = translateViaLLM(testText, Language.ENGLISH, Language.CHINESE, apiKey, baseUrl, model)
+        val elapsed = System.currentTimeMillis() - start
+        if (res.isSuccess) {
+            Result.success("耗时: ${elapsed}ms | 译文: \"${res.getOrNull()}\"")
+        } else {
+            res
         }
     }
 
     private fun translateViaLLM(
         text: String,
         sourceLang: Language,
-        targetLang: Language
+        targetLang: Language,
+        apiKey: String,
+        baseUrl: String,
+        model: String
     ): Result<String> {
-        val apiKey = appPreferences.llmApiKey.trim()
-        val baseUrl = appPreferences.llmBaseUrl.trim().removeSuffix("/")
-        val model = appPreferences.llmModelName.trim()
-
         if (apiKey.isEmpty()) {
-            return Result.failure(IllegalArgumentException("请在设置中配置大模型 API Key (如 DeepSeek)"))
+            return Result.failure(IllegalArgumentException("请填写 API Key"))
         }
 
-        val endpoint = "$baseUrl/chat/completions"
-        val systemPrompt = "你是一名专业实时的外语同传翻译员。请将输入的${sourceLang.displayName}文本准确、自然、简洁地翻译成${targetLang.displayName}。注意：直接输出翻译结果，不要输出任何解释、不要输出拼音或假名注音、不要带引号。"
+        val cleanBaseUrl = baseUrl.removeSuffix("/")
+        val endpoint = if (cleanBaseUrl.endsWith("/chat/completions")) {
+            cleanBaseUrl
+        } else {
+            "$cleanBaseUrl/chat/completions"
+        }
+
+        val prompt = "你是一名实时同传翻译员。请将输入的${sourceLang.displayName}文本准确翻译成${targetLang.displayName}。直接输出译文，不要解释，不要带引号。"
 
         val payload = JsonObject().apply {
-            addProperty("model", model)
+            addProperty("model", model.ifEmpty { "deepseek-chat" })
             addProperty("temperature", 0.3)
             addProperty("max_tokens", 256)
             val messages = com.google.gson.JsonArray().apply {
                 add(JsonObject().apply {
                     addProperty("role", "system")
-                    addProperty("content", systemPrompt)
+                    addProperty("content", prompt)
                 })
                 add(JsonObject().apply {
                     addProperty("role", "user")
@@ -157,8 +179,17 @@ class CloudTranslationEngine(
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    return Result.failure(Exception("LLM API HTTP Error: ${response.code}"))
+                    val code = response.code
+                    val errorDetail = response.body?.string() ?: ""
+                    val msg = when (code) {
+                        401 -> "HTTP 401 密钥无效，请核对 API Key"
+                        404 -> "HTTP 404 地址错误，请检查 Base URL (通常需带 /v1，如 https://api.deepseek.com/v1)"
+                        429 -> "HTTP 429 额度耗尽或频次超限"
+                        else -> "HTTP $code: $errorDetail"
+                    }
+                    return Result.failure(Exception(msg))
                 }
+
                 val respBody = response.body?.string() ?: ""
                 val json = gson.fromJson(respBody, JsonObject::class.java)
                 val choices = json.getAsJsonArray("choices")
@@ -168,9 +199,13 @@ class CloudTranslationEngine(
                         .get("content").asString.trim()
                     Result.success(content)
                 } else {
-                    Result.failure(Exception("Empty response choice from LLM"))
+                    Result.failure(Exception("模型响应内容为空"))
                 }
             }
+        } catch (e: SocketTimeoutException) {
+            Result.failure(Exception("连接超时，请检查网络是否能访问该 API"))
+        } catch (e: ConnectException) {
+            Result.failure(Exception("无法连接至 ${cleanBaseUrl}，请检查地址是否正确"))
         } catch (e: Exception) {
             Log.e(TAG, "LLM translation call failed", e)
             Result.failure(e)

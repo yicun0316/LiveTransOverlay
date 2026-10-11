@@ -8,15 +8,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class AudioSourceType {
-    MIC,             // Microphone capture (for face-to-face / external speaker)
-    SYSTEM_INTERNAL  // Android 10+ AudioPlaybackCapture (for movies, apps, video calls)
+    MIC,             // Microphone capture
+    SYSTEM_INTERNAL  // Internal audio capture
 }
 
 enum class TranslationEngineType {
-    FREE_WEB,        // 100% Free Web API (instant, no model download, works everywhere)
-    LOCAL_ML_KIT,    // On-device Google ML Kit (EN, JA, ZH)
-    CLOUD_DEEPL,     // DeepL Free API (high quality translation)
-    CLOUD_LLM        // OpenAI / DeepSeek API (contextual AI translation)
+    CLOUD_LLM,       // Custom API (DeepSeek / OpenAI compatible)
+    FREE_WEB,        // Free Web Translator
+    LOCAL_ML_KIT,    // On-device ML Kit
+    CLOUD_DEEPL      // DeepL API
 }
 
 class AppPreferences(context: Context) {
@@ -37,18 +37,26 @@ class AppPreferences(context: Context) {
     private val _engineTypeFlow = MutableStateFlow(loadEngineType())
     val engineTypeFlow: StateFlow<TranslationEngineType> = _engineTypeFlow.asStateFlow()
 
+    private val _isLightThemeFlow = MutableStateFlow(prefs.getBoolean("app_light_theme", true))
+    val isLightThemeFlow: StateFlow<Boolean> = _isLightThemeFlow.asStateFlow()
+
+    fun setAppLightTheme(isLight: Boolean) {
+        prefs.edit().putBoolean("app_light_theme", isLight).apply()
+        _isLightThemeFlow.value = isLight
+    }
+
     fun loadSubtitleStyle(): SubtitleStyle {
         return SubtitleStyle(
-            textColor = prefs.getInt("style_text_color", Color.parseColor("#FACC15")),
+            textColor = prefs.getInt("style_text_color", Color.BLACK),
             textSizeSp = prefs.getFloat("style_text_size", 18f),
-            backgroundColor = prefs.getInt("style_bg_color", Color.parseColor("#CC0F172A")),
+            backgroundColor = prefs.getInt("style_bg_color", Color.WHITE),
             showOriginalText = prefs.getBoolean("style_show_original", true),
-            originalTextColor = prefs.getInt("style_original_color", Color.parseColor("#94A3B8")),
-            originalTextSizeSp = prefs.getFloat("style_original_text_size", 14f),
-            enableTextShadow = prefs.getBoolean("style_shadow", true),
+            originalTextColor = prefs.getInt("style_original_color", Color.parseColor("#64748B")),
+            originalTextSizeSp = prefs.getFloat("style_original_text_size", 13f),
+            enableTextShadow = prefs.getBoolean("style_shadow", false),
             isLockedTouchThrough = prefs.getBoolean("style_is_locked", false),
-            windowWidthDp = prefs.getInt("style_window_width", 320),
-            windowHeightDp = prefs.getInt("style_window_height", 160),
+            windowWidthDp = prefs.getInt("style_window_width", 340),
+            windowHeightDp = prefs.getInt("style_window_height", 150),
             isFolded = prefs.getBoolean("style_is_folded", false)
         )
     }
@@ -92,11 +100,11 @@ class AppPreferences(context: Context) {
     }
 
     fun loadAudioSource(): AudioSourceType {
-        val name = prefs.getString("audio_source", AudioSourceType.SYSTEM_INTERNAL.name)
+        val name = prefs.getString("audio_source", AudioSourceType.MIC.name)
         return try {
-            AudioSourceType.valueOf(name ?: AudioSourceType.SYSTEM_INTERNAL.name)
+            AudioSourceType.valueOf(name ?: AudioSourceType.MIC.name)
         } catch (_: Exception) {
-            AudioSourceType.SYSTEM_INTERNAL
+            AudioSourceType.MIC
         }
     }
 
@@ -106,11 +114,11 @@ class AppPreferences(context: Context) {
     }
 
     fun loadEngineType(): TranslationEngineType {
-        val name = prefs.getString("engine_type", TranslationEngineType.FREE_WEB.name)
+        val name = prefs.getString("engine_type", TranslationEngineType.CLOUD_LLM.name)
         return try {
-            TranslationEngineType.valueOf(name ?: TranslationEngineType.FREE_WEB.name)
+            TranslationEngineType.valueOf(name ?: TranslationEngineType.CLOUD_LLM.name)
         } catch (_: Exception) {
-            TranslationEngineType.FREE_WEB
+            TranslationEngineType.CLOUD_LLM
         }
     }
 

@@ -3,36 +3,33 @@ package com.livetrans.overlay.data
 import android.graphics.Color
 
 data class SubtitleStyle(
-    val textColor: Int = Color.parseColor("#FACC15"), // High visibility bright yellow
+    val textColor: Int = Color.BLACK, // Default black on white or customizable
     val textSizeSp: Float = 18f,
-    val backgroundColor: Int = Color.parseColor("#CC0F172A"), // 80% slate dark
+    val backgroundColor: Int = Color.WHITE, // Pure white background support
     val showOriginalText: Boolean = true,
-    val originalTextColor: Int = Color.parseColor("#94A3B8"), // Slate secondary
-    val originalTextSizeSp: Float = 14f,
-    val enableTextShadow: Boolean = true,
+    val originalTextColor: Int = Color.parseColor("#64748B"), // Slate secondary
+    val originalTextSizeSp: Float = 13f,
+    val enableTextShadow: Boolean = false,
     val isLockedTouchThrough: Boolean = false,
-    val windowWidthDp: Int = 320,  // Resizable width (dp)
-    val windowHeightDp: Int = 160, // Resizable height (dp)
-    val isFolded: Boolean = false  // Collapsed / folded status
+    val windowWidthDp: Int = 340,
+    val windowHeightDp: Int = 150,
+    val isFolded: Boolean = false
 ) {
     companion object {
-        // Preset popular subtitle color themes
         val PRESET_COLORS = listOf(
-            0xFFFACC15.toInt(), // Neon Yellow (Industry standard for videos)
+            0xFF000000.toInt(), // Pure Black (Standard for White Background)
+            0xFF2563EB.toInt(), // Deep Blue
+            0xFFFACC15.toInt(), // High-Vis Yellow
             0xFFFFFFFF.toInt(), // Pure White
-            0xFF22D3EE.toInt(), // Cyber Cyan
-            0xFF4ADE80.toInt(), // Mint Green
-            0xFFF43F5E.toInt(), // Neon Coral
-            0xFFA855F7.toInt(), // Soft Purple
-            0xFFFF8C00.toInt(), // Sunset Orange
-            0xFFFF69B4.toInt()  // Hot Pink
+            0xFF10B981.toInt(), // Emerald Green
+            0xFFEF4444.toInt()  // Coral Red
         )
 
-        val PRESET_BG_OPACITIES = listOf(
-            0.0f to "全透明 (0%)",
-            0.35f to "轻度磨砂 (35%)",
-            0.75f to "标准半透 (75%)",
-            0.95f to "纯黑高对比 (95%)"
+        val PRESET_BG_STYLES = listOf(
+            0xFFFFFFFF.toInt() to "纯白背景",
+            0xEBFFFFFF.toInt() to "白底半透",
+            0xCC0F172A.toInt() to "暗黑磨砂",
+            0x00000000 to "完全透明"
         )
     }
 }

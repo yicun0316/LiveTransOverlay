@@ -389,11 +389,20 @@ class LiveSubtitleService : Service() {
             textSize = style.originalTextSizeSp
         }
 
+        val isWhiteBg = (style.backgroundColor == Color.WHITE || style.backgroundColor == 0xFFFFFFFF.toInt())
+        val iconTint = if (isWhiteBg) Color.parseColor("#475569") else Color.parseColor("#94A3B8")
+        btnFold?.setColorFilter(iconTint)
+        btnPause?.setColorFilter(iconTint)
+        btnClose?.setColorFilter(iconTint)
+        if (!isTouchLocked) btnLock?.setColorFilter(iconTint)
+        tvLanguageBadge?.setTextColor(if (isWhiteBg) Color.parseColor("#1E293B") else Color.parseColor("#94A3B8"))
+
         rootContainer?.let { root ->
             val bg = GradientDrawable().apply {
                 setColor(style.backgroundColor)
                 cornerRadius = 24f
-                setStroke(2, Color.parseColor("#26FFFFFF"))
+                val strokeColor = if (isWhiteBg) Color.parseColor("#CBD5E1") else Color.parseColor("#26FFFFFF")
+                setStroke(2, strokeColor)
             }
             root.background = bg
         }
