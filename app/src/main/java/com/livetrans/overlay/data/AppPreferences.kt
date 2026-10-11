@@ -12,11 +12,12 @@ enum class AudioSourceType {
     SYSTEM_INTERNAL  // Internal audio capture
 }
 
-enum class TranslationEngineType {
-    CLOUD_LLM,       // Custom API (DeepSeek / OpenAI compatible)
-    FREE_WEB,        // Free Web Translator
-    LOCAL_ML_KIT,    // On-device ML Kit
-    CLOUD_DEEPL      // DeepL API
+enum class TranslationEngineType(val displayName: String, val isLocalOffline: Boolean) {
+    EMBEDDED_OFFLINE("内置离线引擎 (免下载·即装即用)", true),
+    LOCAL_ML_KIT("Google ML Kit (端侧神经网络模型)", true),
+    FREE_WEB("免费网页引擎 (免Key·即开即用)", false),
+    CLOUD_LLM("大模型云端 API (DeepSeek/Gemini)", false),
+    CLOUD_DEEPL("DeepL API", false)
 }
 
 class AppPreferences(context: Context) {
@@ -114,11 +115,11 @@ class AppPreferences(context: Context) {
     }
 
     fun loadEngineType(): TranslationEngineType {
-        val name = prefs.getString("engine_type", TranslationEngineType.CLOUD_LLM.name)
+        val name = prefs.getString("engine_type", TranslationEngineType.EMBEDDED_OFFLINE.name)
         return try {
-            TranslationEngineType.valueOf(name ?: TranslationEngineType.CLOUD_LLM.name)
+            TranslationEngineType.valueOf(name ?: TranslationEngineType.EMBEDDED_OFFLINE.name)
         } catch (_: Exception) {
-            TranslationEngineType.CLOUD_LLM
+            TranslationEngineType.EMBEDDED_OFFLINE
         }
     }
 

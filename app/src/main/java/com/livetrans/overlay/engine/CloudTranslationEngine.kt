@@ -139,73 +139,98 @@ class CloudTranslationEngine(
         baseUrl: String,
         model: String
     ): Result<String> {
-        if (apiKey.isEmpty()) {
-            return Result.failure(IllegalArgumentException("请填写 API Key"))
-        }
-
-        val cleanBaseUrl = baseUrl.removeSuffix("/")
-        val endpoint = if (cleanBaseUrl.endsWith("/chat/completions")) {
-            cleanBaseUrl
-        } else {
-            "$cleanBaseUrl/chat/completions"
-        }
-
-        val prompt = "你是一名实时同传翻译员。请将输入的${sourceLang.displayName}文本准确翻译成${targetLang.displayName}。直接输出译文，不要解释，不要带引号。"
-
-        val payload = JsonObject().apply {
-            addProperty("model", model.ifEmpty { "deepseek-chat" })
-            addProperty("temperature", 0.3)
-            addProperty("max_tokens", 256)
-            val messages = com.google.gson.JsonArray().apply {
-                add(JsonObject().apply {
-                    addProperty("role", "system")
-                    addProperty("content", prompt)
-                })
-                add(JsonObject().apply {
-                    addProperty("role", "user")
-                    addProperty("content", text)
-                })
-            }
-            add("messages", messages)
-        }
-
-        val requestBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $apiKey")
-            .post(requestBody)
-            .build()
-
         return try {
+            val key = apiKey.trim()
+            if (key.isEmpty()) {
+                return Result.failure(IllegalArgumentException("请填写 API Key 密钥"))
+            }
+
+            var cleanBaseUrl = baseUrl.trim().removeSuffix("/")
+            if (cleanBaseUrl.isEmpty()) {
+                cleanBaseUrl = "https://api.deepseek.com/v1"
+            }
+            if (!cleanBaseUrl.startsWith("http://") && !cleanBaseUrl.startsWith("https://")) {
+                cleanBaseUrl = "https://$cleanBaseUrl"
+            }
+
+            val endpoint = if (cleanBaseUrl.endsWith("/chat/completions")) {
+                cleanBaseUrl
+            } else {
+                "$cleanBaseUrl/chat/completions"
+            }
+
+            val prompt = "你是一名实时同传翻译员。请将输入的${sourceLang.displayName}文本准确翻译成${targetLang.displayName}。直接输出译文，不要解释，不要带引号。"
+
+            val payload = JsonObject().apply {
+                addProperty("model", model.trim().ifEmpty { "deepseek-chat" })
+                addProperty("temperature", 0.3)
+                addProperty("max_tokens", 256)
+                val messages = com.google.gson.JsonArray().apply {
+                    add(JsonObject().apply {
+                        addProperty("role", "system")
+                        addProperty("content", prompt)
+                    })
+                    add(JsonObject().apply {
+                        addProperty("role", "user")
+                        addProperty("content", text)
+                    })
+                }
+                add("messages", messages)
+            }
+
+            val requestBody = payload.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(endpoint)
+                .header("Authorization", "Bearer $key")
+                .post(requestBody)
+                .build()
+
             client.newCall(request).execute().use { response ->
+                val respBody = response.body?.string() ?: ""
                 if (!response.isSuccessful) {
                     val code = response.code
-                    val errorDetail = response.body?.string() ?: ""
                     val msg = when (code) {
                         401 -> "HTTP 401 密钥无效，请核对 API Key"
                         404 -> "HTTP 404 地址错误，请检查 Base URL (通常需带 /v1，如 https://api.deepseek.com/v1)"
                         429 -> "HTTP 429 额度耗尽或频次超限"
-                        else -> "HTTP $code: $errorDetail"
+                        else -> "HTTP $code: $respBody"
                     }
                     return Result.failure(Exception(msg))
                 }
 
-                val respBody = response.body?.string() ?: ""
-                val json = gson.fromJson(respBody, JsonObject::class.java)
+                val json = try {
+                    gson.fromJson(respBody, JsonObject::class.java)
+                } catch (e: Exception) {
+                    null
+                } ?: return Result.failure(Exception("无法解析模型响应: $respBody"))
+
+                if (json.has("error")) {
+                    val errMsg = json.getAsJsonObject("error")?.get("message")?.asString ?: "API 返回错误"
+                    return Result.failure(Exception("API 错误: $errMsg"))
+                }
+
                 val choices = json.getAsJsonArray("choices")
                 if (choices != null && choices.size() > 0) {
-                    val content = choices[0].asJsonObject
-                        .getAsJsonObject("message")
-                        .get("content").asString.trim()
-                    Result.success(content)
+                    val choiceObj = choices[0].asJsonObject
+                    val messageObj = choiceObj.getAsJsonObject("message")
+                    val content = messageObj?.get("content")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                        ?: choiceObj.get("text")?.takeIf { !it.isJsonNull }?.asString?.trim()
+                        ?: ""
+                    if (content.isNotEmpty()) {
+                        Result.success(content)
+                    } else {
+                        Result.failure(Exception("模型响应内容为空"))
+                    }
                 } else {
-                    Result.failure(Exception("模型响应内容为空"))
+                    Result.failure(Exception("模型响应格式不兼容或为空"))
                 }
             }
         } catch (e: SocketTimeoutException) {
-            Result.failure(Exception("连接超时，请检查网络是否能访问该 API"))
+            Result.failure(Exception("网络连接超时，请检查网络是否能访问该 API"))
         } catch (e: ConnectException) {
-            Result.failure(Exception("无法连接至 ${cleanBaseUrl}，请检查地址是否正确"))
+            Result.failure(Exception("无法连接至服务器，请检查接口地址与网络连接"))
+        } catch (e: IllegalArgumentException) {
+            Result.failure(Exception("接口地址或参数格式错误: ${e.message}"))
         } catch (e: Exception) {
             Log.e(TAG, "LLM translation call failed", e)
             Result.failure(e)

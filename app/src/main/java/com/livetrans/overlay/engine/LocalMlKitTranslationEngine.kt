@@ -85,6 +85,31 @@ class LocalMlKitTranslationEngine : ITranslationEngine {
         }
     }
 
+    suspend fun isModelDownloaded(language: Language): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val modelManager = com.google.mlkit.common.model.RemoteModelManager.getInstance()
+            val model = com.google.mlkit.nl.translate.TranslateRemoteModel.Builder(language.mlKitCode).build()
+            modelManager.isModelDownloaded(model).await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to check model download for ${language.shortCode}", e)
+            false
+        }
+    }
+
+    suspend fun downloadModel(language: Language): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val modelManager = com.google.mlkit.common.model.RemoteModelManager.getInstance()
+            val model = com.google.mlkit.nl.translate.TranslateRemoteModel.Builder(language.mlKitCode).build()
+            val conditions = DownloadConditions.Builder().build()
+            modelManager.download(model, conditions).await()
+            Log.d(TAG, "Successfully downloaded ML Kit model for ${language.shortCode}")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to download model for ${language.shortCode}", e)
+            Result.failure(e)
+        }
+    }
+
     override fun close() {
         translatorCache.values.forEach { it.close() }
         translatorCache.clear()

@@ -232,42 +232,140 @@ class LiveSubtitleService : Service() {
             btnClose = view.findViewById(R.id.btnClose)
             ivResizeHandle = view.findViewById(R.id.ivResizeHandle)
 
-            setupDragAndTouchEvents(view)
+            setupDragAndPinchGestures(view)
             setupResizeHandleEvents(view)
             setupButtonControls()
 
-            windowManager.addView(view, layoutParams)
+            try {
+                windowManager.addView(view, layoutParams)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error adding overlay view to WindowManager", e)
+            }
         }
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun setupDragAndTouchEvents(view: View) {
+    private fun setupDragAndPinchGestures(view: View) {
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
 
-        val headerBar = view.findViewById<View>(R.id.headerControlBar)
-        headerBar.setOnTouchListener { _, event ->
-            if (isTouchLocked) return@setOnTouchListener false
+        var isPinching = false
+        var initialFingerDistance = 0f
+        var initialWidth = 0
+        var initialHeight = 0
 
-            when (event.action) {
+        val density = resources.displayMetrics.density
+        val screenWidth = resources.displayMetrics.widthPixels
+        val screenHeight = resources.displayMetrics.heightPixels
+        val minWidthPx = (200 * density).toInt()
+        val maxWidthPx = (screenWidth - (20 * density).toInt()).coerceAtLeast(minWidthPx)
+        val minHeightPx = (75 * density).toInt()
+        val maxHeightPx = (screenHeight * 0.75f).toInt()
+
+        fun getDistance(event: MotionEvent): Float {
+            if (event.pointerCount < 2) return 0f
+            val dx = event.getX(0) - event.getX(1)
+            val dy = event.getY(0) - event.getY(1)
+            return kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+        }
+
+        fun saveDimensions() {
+            val app = application as? LiveTransApplication ?: return
+            val currentStyle = app.appPreferences.loadSubtitleStyle()
+            val newWidthDp = (layoutParams.width / density).toInt()
+            val newHeightDp = (layoutParams.height / density).toInt()
+            app.appPreferences.updateSubtitleStyle(
+                currentStyle.copy(windowWidthDp = newWidthDp, windowHeightDp = newHeightDp)
+            )
+        }
+
+        val gestureListener = View.OnTouchListener { _, event ->
+            if (isTouchLocked) return@OnTouchListener false
+
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    isPinching = false
                     initialX = layoutParams.x
                     initialY = layoutParams.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     true
                 }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (event.pointerCount >= 2 && !isFolded) {
+                        isPinching = true
+                        initialFingerDistance = getDistance(event)
+                        initialWidth = layoutParams.width
+                        initialHeight = layoutParams.height
+                    }
+                    true
+                }
                 MotionEvent.ACTION_MOVE -> {
-                    layoutParams.x = initialX + (event.rawX - initialTouchX).toInt()
-                    layoutParams.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager.updateViewLayout(view, layoutParams)
+                    if (isPinching && event.pointerCount >= 2 && !isFolded) {
+                        // 双指缩放 (Two-finger Pinch-to-Zoom)
+                        val currentDistance = getDistance(event)
+                        if (initialFingerDistance > 30f && currentDistance > 30f) {
+                            val scale = currentDistance / initialFingerDistance
+                            val targetWidth = (initialWidth * scale).toInt().coerceIn(minWidthPx, maxWidthPx)
+                            val targetHeight = (initialHeight * scale).toInt().coerceIn(minHeightPx, maxHeightPx)
+
+                            layoutParams.width = targetWidth
+                            layoutParams.height = targetHeight
+                            try {
+                                windowManager.updateViewLayout(view, layoutParams)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error updating layout in pinch", e)
+                            }
+                        }
+                    } else if (!isPinching && event.pointerCount == 1) {
+                        // 单指移动 (Single-finger Drag)
+                        val deltaX = (event.rawX - initialTouchX).toInt()
+                        val deltaY = (event.rawY - initialTouchY).toInt()
+                        layoutParams.x = initialX + deltaX
+                        layoutParams.y = initialY + deltaY
+                        try {
+                            windowManager.updateViewLayout(view, layoutParams)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error updating layout in drag", e)
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (isPinching) {
+                        isPinching = false
+                        saveDimensions()
+                        val remainingIdx = if (event.actionIndex == 0) 1 else 0
+                        if (remainingIdx < event.pointerCount) {
+                            initialX = layoutParams.x
+                            initialY = layoutParams.y
+                            try {
+                                initialTouchX = event.getRawX(remainingIdx)
+                                initialTouchY = event.getRawY(remainingIdx)
+                            } catch (_: Exception) {
+                                initialTouchX = event.rawX
+                                initialTouchY = event.rawY
+                            }
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isPinching) {
+                        isPinching = false
+                        saveDimensions()
+                    }
                     true
                 }
                 else -> false
             }
         }
+
+        rootContainer?.setOnTouchListener(gestureListener)
+        view.findViewById<View>(R.id.headerControlBar)?.setOnTouchListener(gestureListener)
+        view.findViewById<View>(R.id.contentContainer)?.setOnTouchListener(gestureListener)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -416,31 +514,47 @@ class LiveSubtitleService : Service() {
     }
 
     private fun applySubtitleStyle(style: SubtitleStyle) {
+        val isWhiteBg = (style.backgroundColor == Color.WHITE || style.backgroundColor == 0xFFFFFFFF.toInt())
+
+        // If background is pure white and text color is pure white, automatically use dark slate
+        val effectiveTextColor = if (isWhiteBg && (style.textColor == Color.WHITE || style.textColor == 0xFFFFFFFF.toInt())) {
+            Color.parseColor("#0F172A")
+        } else {
+            style.textColor
+        }
+
         tvTranslated?.apply {
-            setTextColor(style.textColor)
+            setTextColor(effectiveTextColor)
             textSize = style.textSizeSp
             if (style.enableTextShadow) {
-                setShadowLayer(4f, 2f, 2f, Color.BLACK)
+                val shadowColor = if (isWhiteBg) Color.parseColor("#33000000") else Color.BLACK
+                setShadowLayer(4f, 2f, 2f, shadowColor)
             } else {
                 setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
             }
+        }
+
+        val effectiveOriginalColor = if (isWhiteBg && (style.originalTextColor == Color.WHITE || style.originalTextColor == 0xFFFFFFFF.toInt())) {
+            Color.parseColor("#475569")
+        } else {
+            style.originalTextColor
         }
 
         tvOriginal?.apply {
             if (!isFolded) {
                 visibility = if (style.showOriginalText) View.VISIBLE else View.GONE
             }
-            setTextColor(style.originalTextColor)
+            setTextColor(effectiveOriginalColor)
             textSize = style.originalTextSizeSp
         }
 
-        val isWhiteBg = (style.backgroundColor == Color.WHITE || style.backgroundColor == 0xFFFFFFFF.toInt())
         val iconTint = if (isWhiteBg) Color.parseColor("#475569") else Color.parseColor("#94A3B8")
         btnFold?.setColorFilter(iconTint)
         btnPause?.setColorFilter(iconTint)
         btnClose?.setColorFilter(iconTint)
         if (!isTouchLocked) btnLock?.setColorFilter(iconTint)
         tvLanguageBadge?.setTextColor(if (isWhiteBg) Color.parseColor("#1E293B") else Color.parseColor("#94A3B8"))
+        tvStatusHint?.setTextColor(if (isWhiteBg) Color.parseColor("#64748B") else Color.parseColor("#94A3B8"))
 
         rootContainer?.let { root ->
             val bg = GradientDrawable().apply {
