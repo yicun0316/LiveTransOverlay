@@ -27,7 +27,13 @@ import androidx.compose.ui.unit.sp
 import com.livetrans.overlay.data.*
 import com.livetrans.overlay.engine.CloudTranslationEngine
 import com.livetrans.overlay.engine.LocalMlKitTranslationEngine
+import com.livetrans.overlay.engine.AudioCaptureManager
+import com.livetrans.overlay.engine.CloudAsrEngine
+import com.livetrans.overlay.engine.SpeechAudioSegmenter
 import com.livetrans.overlay.engine.TranslationEngineManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import java.io.ByteArrayOutputStream
 import com.livetrans.overlay.service.LiveSubtitleService
 import kotlinx.coroutines.launch
 
@@ -61,6 +67,24 @@ fun HomeScreen(
     var manualTestText by remember { mutableStateOf("Hello! This is a translation test.") }
     var inAppTestOutput by remember { mutableStateOf("") }
     var isInAppTranslating by remember { mutableStateOf(false) }
+
+    val asrEngineType by appPreferences.asrEngineTypeFlow.collectAsState()
+    var asrApiKeyInput by remember { mutableStateOf(if (appPreferences.asrApiKey.isNotBlank()) appPreferences.asrApiKey else appPreferences.llmApiKey) }
+    var asrBaseUrlInput by remember { mutableStateOf(appPreferences.asrBaseUrl) }
+    var asrModelInput by remember { mutableStateOf(appPreferences.asrModelName) }
+    var asrTestResult by remember { mutableStateOf("") }
+    var isTestingAsr by remember { mutableStateOf(false) }
+
+    // Live Voice In-App Test states
+    var testTabMode by remember { mutableStateOf(0) } // 0: 实时拾音同传实测, 1: 文本速测
+    var isVoiceRecording by remember { mutableStateOf(false) }
+    var voiceRecordDb by remember { mutableStateOf(0f) }
+    var voiceRecordCountDown by remember { mutableStateOf(4) }
+    var voiceAsrResultText by remember { mutableStateOf("") }
+    var voiceTransResultText by remember { mutableStateOf("") }
+    var voiceTestCostMs by remember { mutableStateOf(0L) }
+    var voiceTestStatusHint by remember { mutableStateOf("") }
+    var isVoiceTranscribing by remember { mutableStateOf(false) }
 
     // ML Kit offline model download states
     var mlKitEnDownloaded by remember { mutableStateOf(false) }
@@ -288,7 +312,7 @@ fun HomeScreen(
                 }
             }
 
-            // 2. Translation Test Workbench (实测测试台，防闪退 + 纯白高对比)
+            // 2. 实时拾音同传实测中心 (说话即翻·真同传测试)
             Card(
                 shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = cardBg),
@@ -302,140 +326,608 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "实时翻译测试台",
+                            text = "🎤 实时拾音同传实测中心",
                             color = textPrimary,
-                            fontSize = 14.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Text(
-                            text = "当前引擎: ${engineType.displayName}",
-                            color = brandPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Surface(
+                            color = brandPrimary.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = "真同传模式",
+                                color = brandPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
                     }
+
                     Text(
-                        text = "输入测试文字立即验证翻译质量，无需启动悬浮窗也可直观预览结果",
+                        text = "支持直接对手机说话进行真实录音、极速语音转写与实时同传翻译，也可切换文本速测",
                         color = textSecondary,
                         fontSize = 11.sp
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // Preset Quick Chips
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Tab Switcher: 实时拾音同传 vs 文本速测
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        AssistChip(
-                            onClick = {
-                                manualTestText = "Hello, welcome to live translation."
-                            },
-                            label = { Text("🇬🇧 英语测试", fontSize = 11.sp) }
+                        FilterChip(
+                            selected = testTabMode == 0,
+                            onClick = { testTabMode = 0 },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("🎙️ 麦克风拾音实测 (说话即翻)", fontSize = 11.sp, fontWeight = if (testTabMode == 0) FontWeight.Bold else FontWeight.Normal) }
                         )
-                        AssistChip(
-                            onClick = {
-                                manualTestText = "こんにちは、翻訳テストです。"
-                            },
-                            label = { Text("🇯🇵 日语测试", fontSize = 11.sp) }
-                        )
-                        AssistChip(
-                            onClick = {
-                                manualTestText = "你好，欢迎体验实时同传字幕。"
-                            },
-                            label = { Text("🇨🇳 中文测试", fontSize = 11.sp) }
+                        FilterChip(
+                            selected = testTabMode == 1,
+                            onClick = { testTabMode = 1 },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("✍️ 文本输入速测", fontSize = 11.sp, fontWeight = if (testTabMode == 1) FontWeight.Bold else FontWeight.Normal) }
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    OutlinedTextField(
-                        value = manualTestText,
-                        onValueChange = { manualTestText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = highContrastTextFieldColors,
-                        placeholder = { Text("输入测试语句…", color = textSecondary) }
+                    if (testTabMode == 0) {
+                        // === 真实麦克风录音同传测试 ===
+                        Surface(
+                            color = if (isVoiceRecording) Color(0xFFEF4444).copy(alpha = 0.08f) else if (isLightTheme) Color(0xFFF1F5F9) else Color(0xFF0F172A),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isVoiceRecording) Color(0xFFEF4444) else cardBorder
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (isVoiceRecording) "🔴 正在录音拾音中..." else "🎧 真实声音同传测试",
+                                        color = if (isVoiceRecording) Color(0xFFDC2626) else textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    if (isVoiceRecording) {
+                                        Text(
+                                            text = "倒计时: ${voiceRecordCountDown}s",
+                                            color = Color(0xFFDC2626),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                // Real-time decibel meter wave
+                                val waveBars = when {
+                                    voiceRecordDb > 62f -> " ▂▃▅▆▇"
+                                    voiceRecordDb > 48f -> " ▂▃▅"
+                                    voiceRecordDb > 35f -> " ▂▃"
+                                    voiceRecordDb > 20f -> " ▂"
+                                    else -> "  "
+                                }
+                                Text(
+                                    text = if (isVoiceRecording) "🎤 实时拾音波形: [$waveBars ${voiceRecordDb.toInt()}dB] 请清晰说话..." else "点击下方大按钮，对着麦克风说一段外语或中文，即可端到端验证语音识别+同传字幕。",
+                                    color = if (isVoiceRecording) brandPrimary else textSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp
+                                )
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                // Start Voice Test Button
+                                Button(
+                                    onClick = {
+                                        if (isVoiceRecording) {
+                                            isVoiceRecording = false
+                                            return@Button
+                                        }
+
+                                        isVoiceRecording = true
+                                        voiceRecordCountDown = 4
+                                        voiceAsrResultText = ""
+                                        voiceTransResultText = ""
+                                        voiceTestCostMs = 0L
+                                        voiceTestStatusHint = "🎙️ 正在拾音中 (4秒)... 请对着麦克风说话"
+
+                                        coroutineScope.launch(Dispatchers.IO) {
+                                            val pcmStream = ByteArrayOutputStream()
+                                            val captureMgr = AudioCaptureManager(
+                                                context = context,
+                                                onAudioChunkReady = { buf, len ->
+                                                    pcmStream.write(buf, 0, len)
+                                                },
+                                                onAudioDbLevel = { db ->
+                                                    voiceRecordDb = db
+                                                }
+                                            )
+
+                                            val captureJob = launch(Dispatchers.IO) {
+                                                captureMgr.startCapture(AudioSourceType.MIC)
+                                            }
+
+                                            for (sec in 4 downTo 1) {
+                                                voiceRecordCountDown = sec
+                                                delay(1000)
+                                                if (!isVoiceRecording) break
+                                            }
+
+                                            captureMgr.stopCapture()
+                                            captureJob.cancel()
+                                            isVoiceRecording = false
+                                            voiceRecordDb = 0f
+
+                                            val pcmBytes = pcmStream.toByteArray()
+                                            if (pcmBytes.size < 16000) {
+                                                voiceTestStatusHint = "⚠️ 录音时间过短或未捕获到音频"
+                                                return@launch
+                                            }
+
+                                            isVoiceTranscribing = true
+                                            voiceTestStatusHint = "⚡ 正在调用 ASR 语音模型转写音频…"
+                                            val t0 = System.currentTimeMillis()
+                                            val wavBytes = SpeechAudioSegmenter.pcmToWav(pcmBytes)
+
+                                            val asrEngine = CloudAsrEngine(appPreferences)
+                                            val asrRes = asrEngine.transcribe(wavBytes, sourceLang)
+                                            val asrTime = System.currentTimeMillis() - t0
+
+                                            if (asrRes.isSuccess) {
+                                                val rawText = asrRes.getOrNull()?.trim() ?: ""
+                                                voiceAsrResultText = rawText
+                                                voiceTestStatusHint = "⚡ 语音识别成功 (${asrTime}ms)，正在同传翻译…"
+
+                                                val transT0 = System.currentTimeMillis()
+                                                val transMgr = TranslationEngineManager(appPreferences)
+                                                val transRes = transMgr.translate(rawText, sourceLang, targetLang)
+                                                val transTime = System.currentTimeMillis() - transT0
+                                                voiceTestCostMs = asrTime + transTime
+
+                                                if (transRes.isSuccess) {
+                                                    voiceTransResultText = transRes.getOrNull() ?: ""
+                                                    voiceTestStatusHint = "✔ 同传成功！总耗时 ${voiceTestCostMs}ms (ASR: ${asrTime}ms + 翻译: ${transTime}ms)"
+                                                } else {
+                                                    val err = transRes.exceptionOrNull()?.message ?: "翻译异常"
+                                                    voiceTransResultText = "❌ 翻译失败: $err"
+                                                    voiceTestStatusHint = "⚠️ 识别出语音但翻译出错: $err"
+                                                }
+                                            } else {
+                                                val err = asrRes.exceptionOrNull()?.message ?: "识别失败"
+                                                voiceTestStatusHint = "❌ 语音识别未成功: $err"
+                                                if (appPreferences.asrApiKey.isEmpty() && appPreferences.llmApiKey.isEmpty()) {
+                                                    voiceTestStatusHint += "\n(提示: 推荐在下方填入 SiliconFlow 免费 Key 启用 SenseVoice 毫秒级同传)"
+                                                }
+                                            }
+                                            isVoiceTranscribing = false
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (isVoiceRecording) Color(0xFFDC2626) else brandPrimary
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = if (isVoiceRecording) Icons.Default.Stop else Icons.Default.Mic,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (isVoiceRecording) "停止录音 (立即识别转写)" else if (isVoiceTranscribing) "正在极速同传识别中…" else "🎤 开始 4 秒拾音同传实测 (对着手机说话)",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Voice Test Result Area
+                        AnimatedVisibility(visible = voiceAsrResultText.isNotEmpty() || voiceTransResultText.isNotEmpty() || voiceTestStatusHint.isNotEmpty()) {
+                            Surface(
+                                color = if (isLightTheme) Color(0xFFF8FAFC) else Color(0xFF0F172A),
+                                shape = RoundedCornerShape(10.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, cardBorder),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 10.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    if (voiceAsrResultText.isNotEmpty()) {
+                                        Text(text = "📝 识别语音原文 (${sourceLang.shortCode}):", color = textSecondary, fontSize = 11.sp)
+                                        Text(text = voiceAsrResultText, color = textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+
+                                    if (voiceTransResultText.isNotEmpty()) {
+                                        Text(text = "🌐 实时同传译文 (${targetLang.shortCode}):", color = Color(0xFF059669), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        Text(text = voiceTransResultText, color = if (voiceTransResultText.startsWith("❌")) Color(0xFFDC2626) else textPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+
+                                    if (voiceTestStatusHint.isNotEmpty()) {
+                                        Text(text = voiceTestStatusHint, color = if (voiceTestStatusHint.startsWith("✔")) Color(0xFF059669) else brandPrimary, fontSize = 11.sp)
+                                    }
+
+                                    if (voiceTransResultText.isNotEmpty() && !voiceTransResultText.startsWith("❌")) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        OutlinedButton(
+                                            onClick = {
+                                                if (isServiceRunning) {
+                                                    LiveSubtitleService.sendTestSpeech(context, voiceAsrResultText)
+                                                    Toast.makeText(context, "已同步至悬浮同传窗！", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "请先在顶部启动【悬浮同传字幕】", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, brandPrimary)
+                                        ) {
+                                            Icon(imageVector = Icons.Default.Send, contentDescription = null, tint = brandPrimary, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(text = "同步发送至悬浮窗显示", color = brandPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // === 文本输入速测 ===
+                        Column {
+                            // Preset Quick Chips
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                AssistChip(
+                                    onClick = { manualTestText = "Hello, welcome to live translation." },
+                                    label = { Text("🇬🇧 英语测试", fontSize = 11.sp) }
+                                )
+                                AssistChip(
+                                    onClick = { manualTestText = "こんにちは、翻訳テストです。" },
+                                    label = { Text("🇯🇵 日语测试", fontSize = 11.sp) }
+                                )
+                                AssistChip(
+                                    onClick = { manualTestText = "你好，欢迎体验实时同传字幕。" },
+                                    label = { Text("🇨🇳 中文测试", fontSize = 11.sp) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedTextField(
+                                value = manualTestText,
+                                onValueChange = { manualTestText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                colors = highContrastTextFieldColors,
+                                placeholder = { Text("输入测试语句…", color = textSecondary) }
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        val text = manualTestText.trim()
+                                        if (text.isEmpty()) {
+                                            Toast.makeText(context, "请输入测试语句", Toast.LENGTH_SHORT).show()
+                                            return@Button
+                                        }
+
+                                        isInAppTranslating = true
+                                        inAppTestOutput = "⏳ 正在请求【${engineType.displayName}】翻译中…"
+                                        coroutineScope.launch {
+                                            try {
+                                                val mgr = TranslationEngineManager(appPreferences)
+                                                val res = mgr.translate(text, sourceLang, targetLang)
+                                                inAppTestOutput = if (res.isSuccess) {
+                                                    "✔ 译文: ${res.getOrNull()}"
+                                                } else {
+                                                    "❌ 失败: ${res.exceptionOrNull()?.message}"
+                                                }
+                                            } catch (e: Throwable) {
+                                                inAppTestOutput = "❌ 异常: ${e.message ?: "未知异常"}"
+                                            } finally {
+                                                isInAppTranslating = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = brandPrimary)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = "测试翻译", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        val text = manualTestText.trim()
+                                        if (text.isEmpty()) return@OutlinedButton
+                                        if (isServiceRunning) {
+                                            LiveSubtitleService.sendTestSpeech(context, text)
+                                            Toast.makeText(context, "已发送至悬浮窗", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "请先点击顶部【启动悬浮同传字幕】", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, brandPrimary)
+                                ) {
+                                    Icon(imageVector = Icons.Default.Send, contentDescription = null, tint = brandPrimary, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = "同步至悬浮窗", color = brandPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
+
+                            AnimatedVisibility(visible = inAppTestOutput.isNotEmpty() || isInAppTranslating) {
+                                Surface(
+                                    color = if (isLightTheme) Color(0xFFF1F5F9) else Color(0xFF0F172A),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, cardBorder),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp)
+                                ) {
+                                    Text(
+                                        text = if (isInAppTranslating) "⏳ 正在极速同传翻译中…" else inAppTestOutput,
+                                        color = if (inAppTestOutput.startsWith("✔")) Color(0xFF059669) else textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. 语音转写 (ASR) 同传识别设置 (解决国内手机无谷歌语音服务与内录无法识别的根源)
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "🎙️ 语音转写 (ASR) 引擎设置",
+                        color = textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
                     )
-
+                    Text(
+                        text = "声音输入转化为文字的中枢。支持外放声音拾音与系统内录音频识别",
+                        color = textSecondary,
+                        fontSize = 11.sp
+                    )
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 1. 立即测试翻译 (防闪退，直接在应用内展示结果)
-                        Button(
-                            onClick = {
-                                val text = manualTestText.trim()
-                                if (text.isEmpty()) {
-                                    Toast.makeText(context, "请输入测试语句", Toast.LENGTH_SHORT).show()
-                                    return@Button
-                                }
-
-                                isInAppTranslating = true
-                                inAppTestOutput = "⏳ 正在请求【${engineType.displayName}】翻译中…"
-                                coroutineScope.launch {
-                                    try {
-                                        val mgr = TranslationEngineManager(appPreferences)
-                                        val res = mgr.translate(text, sourceLang, targetLang)
-                                        inAppTestOutput = if (res.isSuccess) {
-                                            "✔ 译文: ${res.getOrNull()}"
-                                        } else {
-                                            "❌ 失败: ${res.exceptionOrNull()?.message}"
-                                        }
-                                    } catch (e: Throwable) {
-                                        inAppTestOutput = "❌ 异常: ${e.message ?: "未知异常"}"
-                                    } finally {
-                                        isInAppTranslating = false
-                                    }
-                                }
-                            },
+                        FilterChip(
+                            selected = asrEngineType == AsrEngineType.AUTO_CLOUD,
+                            onClick = { appPreferences.setAsrEngineType(AsrEngineType.AUTO_CLOUD) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = brandPrimary)
-                        ) {
-                            Icon(imageVector = Icons.Default.Translate, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "测试翻译", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
-
-                        // 2. 发送至悬浮窗
-                        OutlinedButton(
-                            onClick = {
-                                val text = manualTestText.trim()
-                                if (text.isEmpty()) return@OutlinedButton
-                                if (isServiceRunning) {
-                                    LiveSubtitleService.sendTestSpeech(context, text)
-                                    Toast.makeText(context, "已发送至悬浮窗", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "请先点击顶部【启动悬浮同传字幕】", Toast.LENGTH_SHORT).show()
-                                }
-                            },
+                            label = { Text("⚡ 极速云端 (SenseVoice/Whisper 推荐)", fontSize = 10.sp) }
+                        )
+                        FilterChip(
+                            selected = asrEngineType == AsrEngineType.SYSTEM_STT,
+                            onClick = { appPreferences.setAsrEngineType(AsrEngineType.SYSTEM_STT) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, brandPrimary)
-                        ) {
-                            Icon(imageVector = Icons.Default.Send, contentDescription = null, tint = brandPrimary, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "同步至悬浮窗", color = brandPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        }
+                            label = { Text("📱 系统内置语音识别", fontSize = 10.sp) }
+                        )
                     }
 
-                    AnimatedVisibility(visible = inAppTestOutput.isNotEmpty() || isInAppTranslating) {
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (asrEngineType == AsrEngineType.AUTO_CLOUD) {
+                        Column {
+                            Surface(
+                                color = Color(0xFF10B981).copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "💡 SenseVoice 优势: 50ms 超低延迟、中文/英语/日语全向高准确率、免梯子、支持外放与系统内录音频。首选硅基流动 (注册即送免费额度，SenseVoice 0元超低消耗)。",
+                                    color = textPrimary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 16.sp,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Text(text = "快速预设 (一键填入 ASR 服务与模型):", color = textSecondary, fontSize = 11.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(
+                                    selected = asrBaseUrlInput.contains("siliconflow"),
+                                    onClick = {
+                                        asrBaseUrlInput = "https://api.siliconflow.cn/v1"
+                                        asrModelInput = "FunAudioLLM/SenseVoiceSmall"
+                                    },
+                                    label = { Text("⚡ 硅基流动 SenseVoice", fontSize = 10.sp) }
+                                )
+                                FilterChip(
+                                    selected = asrBaseUrlInput.contains("groq"),
+                                    onClick = {
+                                        asrBaseUrlInput = "https://api.groq.com/openai/v1"
+                                        asrModelInput = "whisper-large-v3"
+                                    },
+                                    label = { Text("⚡ Groq Whisper", fontSize = 10.sp) }
+                                )
+                                FilterChip(
+                                    selected = asrBaseUrlInput.contains("api.openai.com"),
+                                    onClick = {
+                                        asrBaseUrlInput = "https://api.openai.com/v1"
+                                        asrModelInput = "whisper-1"
+                                    },
+                                    label = { Text("🤖 OpenAI Whisper", fontSize = 10.sp) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(text = "ASR API Key (密钥，未填写则复用下方大模型Key):", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = asrApiKeyInput,
+                                onValueChange = { asrApiKeyInput = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = highContrastTextFieldColors,
+                                placeholder = { Text("粘贴 API Key (如 sk-...)", color = textSecondary) },
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(text = "ASR Base URL (接口地址):", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = asrBaseUrlInput,
+                                onValueChange = { asrBaseUrlInput = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = highContrastTextFieldColors,
+                                placeholder = { Text("https://api.siliconflow.cn/v1", color = textSecondary) },
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(text = "ASR Model (语音模型):", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = asrModelInput,
+                                onValueChange = { asrModelInput = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = highContrastTextFieldColors,
+                                placeholder = { Text("FunAudioLLM/SenseVoiceSmall", color = textSecondary) },
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        appPreferences.asrApiKey = asrApiKeyInput.trim()
+                                        appPreferences.asrBaseUrl = asrBaseUrlInput.trim()
+                                        appPreferences.asrModelName = asrModelInput.trim()
+                                        appPreferences.setAsrEngineType(AsrEngineType.AUTO_CLOUD)
+                                        Toast.makeText(context, "ASR 配置已保存！", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+                                ) {
+                                    Icon(imageVector = Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = "保存 ASR 配置", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val key = asrApiKeyInput.trim().ifEmpty { apiKeyInput.trim() }
+                                        val url = asrBaseUrlInput.trim()
+                                        val mod = asrModelInput.trim()
+
+                                        appPreferences.asrApiKey = key
+                                        appPreferences.asrBaseUrl = url
+                                        appPreferences.asrModelName = mod
+
+                                        if (key.isEmpty()) {
+                                            asrTestResult = "⚠️ 请先填写 API Key (或在下方大模型设置中填写)"
+                                            return@Button
+                                        }
+
+                                        isTestingAsr = true
+                                        asrTestResult = "正在连接并握手 ASR 服务..."
+                                        coroutineScope.launch {
+                                            try {
+                                                val asr = CloudAsrEngine(appPreferences)
+                                                val res = asr.testConnection(key, url, mod)
+                                                asrTestResult = if (res.isSuccess) {
+                                                    "✔ ASR 连通正常！${res.getOrNull()}"
+                                                } else {
+                                                    "❌ 连通失败: ${res.exceptionOrNull()?.message}"
+                                                }
+                                            } catch (e: Throwable) {
+                                                asrTestResult = "❌ 异常: ${e.message ?: "未知异常"}"
+                                            } finally {
+                                                isTestingAsr = false
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = brandPrimary)
+                                ) {
+                                    Icon(imageVector = Icons.Default.NetworkCheck, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(text = "测试 ASR 连通", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+                            AnimatedVisibility(visible = asrTestResult.isNotEmpty() || isTestingAsr) {
+                                Surface(
+                                    color = if (isLightTheme) Color(0xFFF1F5F9) else Color(0xFF0F172A),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, cardBorder),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp)
+                                ) {
+                                    Text(
+                                        text = asrTestResult,
+                                        color = if (asrTestResult.startsWith("✔")) Color(0xFF059669) else Color(0xFFDC2626),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.padding(10.dp)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
                         Surface(
                             color = if (isLightTheme) Color(0xFFF1F5F9) else Color(0xFF0F172A),
                             shape = RoundedCornerShape(8.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, cardBorder),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 10.dp)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = if (isInAppTranslating) "⏳ 正在极速同传翻译中…" else inAppTestOutput,
-                                color = if (inAppTestOutput.startsWith("✔")) Color(0xFF059669) else textPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(12.dp)
+                                text = "⚠️ 系统内置模式依赖 Android 系统 SpeechRecognizer 服务 (Google 语音)。国内手机 (小米/华为/vivo/OPPO) 多数无内置谷歌语音包，若提示错误码 5/3，请切换至【极速云端】使用 SenseVoice。",
+                                color = Color(0xFFD97706),
+                                fontSize = 11.sp,
+                                lineHeight = 16.sp,
+                                modifier = Modifier.padding(10.dp)
                             )
                         }
                     }

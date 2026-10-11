@@ -29,10 +29,10 @@ import androidx.core.app.ServiceCompat
 import com.livetrans.overlay.LiveTransApplication
 import com.livetrans.overlay.MainActivity
 import com.livetrans.overlay.R
+import com.livetrans.overlay.data.AudioSourceType
 import com.livetrans.overlay.data.Language
 import com.livetrans.overlay.data.SubtitleStyle
-import com.livetrans.overlay.engine.AndroidSystemSpeechEngine
-import com.livetrans.overlay.engine.ISpeechRecognitionEngine
+import com.livetrans.overlay.engine.SpeechRecognitionManager
 import com.livetrans.overlay.engine.TranslationEngineManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -51,7 +51,7 @@ class LiveSubtitleService : Service() {
     private lateinit var layoutParams: WindowManager.LayoutParams
 
     private lateinit var translationEngineManager: TranslationEngineManager
-    private lateinit var speechEngine: ISpeechRecognitionEngine
+    private var speechRecognitionManager: SpeechRecognitionManager? = null
 
     private var isPaused = false
     private var isTouchLocked = false
@@ -86,7 +86,31 @@ class LiveSubtitleService : Service() {
 
         val app = application as LiveTransApplication
         translationEngineManager = TranslationEngineManager(app.appPreferences)
-        speechEngine = AndroidSystemSpeechEngine(this)
+        speechRecognitionManager = SpeechRecognitionManager(
+            context = this,
+            appPreferences = app.appPreferences,
+            scope = serviceScope,
+            onSpeechTextRecognized = ::onSpeechResult,
+            onAudioDbLevel = { db ->
+                if (db > 34f && !isPaused) {
+                    val bars = when {
+                        db > 62f -> " ▂▃▅▆▇"
+                        db > 48f -> " ▂▃▅"
+                        else -> " ▂"
+                    }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        if (tvStatusHint?.text?.contains("正在极速") != true) {
+                            tvStatusHint?.text = "🎤 声音捕获中: [$bars ${db.toInt()}dB]"
+                        }
+                    }
+                }
+            },
+            onStatusHintChanged = { hint ->
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    tvStatusHint?.text = hint
+                }
+            }
+        )
 
         createNotificationChannel()
         startServiceAsForeground()
@@ -433,17 +457,11 @@ class LiveSubtitleService : Service() {
             if (isPaused) {
                 btnPause?.setImageResource(android.R.drawable.ic_media_play)
                 tvStatusHint?.text = "⏸️ 【已暂停同传监听】"
-                speechEngine.stopListening()
+                speechRecognitionManager?.stop()
             } else {
                 btnPause?.setImageResource(android.R.drawable.ic_media_pause)
                 tvStatusHint?.text = "🎤 【已恢复实时同传监听】"
-                val app = application as LiveTransApplication
-                speechEngine.startListening(
-                    app.appPreferences.loadSourceLanguage(),
-                    ::onSpeechResult,
-                    ::onSpeechResult,
-                    ::onSpeechError
-                )
+                startRecognitionPipeline()
             }
         }
 
@@ -508,7 +526,21 @@ class LiveSubtitleService : Service() {
             app.appPreferences.sourceLangFlow.collectLatest { src ->
                 val tgt = app.appPreferences.loadTargetLanguage()
                 updateLanguageBadge(src, tgt)
-                restartSpeechEngine(src)
+                startRecognitionPipeline()
+            }
+        }
+
+        // Observe Audio Source Changes
+        serviceScope.launch {
+            app.appPreferences.audioSourceFlow.collectLatest {
+                startRecognitionPipeline()
+            }
+        }
+
+        // Observe ASR Engine Changes
+        serviceScope.launch {
+            app.appPreferences.asrEngineTypeFlow.collectLatest {
+                startRecognitionPipeline()
             }
         }
     }
@@ -571,79 +603,40 @@ class LiveSubtitleService : Service() {
         tvLanguageBadge?.text = "${sourceLang.shortCode} ➔ ${targetLang.shortCode}"
     }
 
-    private var audioCaptureManager: com.livetrans.overlay.engine.AudioCaptureManager? = null
-
     private fun startRecognitionPipeline() {
+        if (isPaused) return
         val app = application as LiveTransApplication
         val src = app.appPreferences.loadSourceLanguage()
         val tgt = app.appPreferences.loadTargetLanguage()
+        val audioSource = app.appPreferences.loadAudioSource()
         updateLanguageBadge(src, tgt)
 
         serviceScope.launch {
             translationEngineManager.prepareCurrentEngine(src, tgt)
         }
 
-        // Start real-time audio energy meter for visual sound feedback
-        audioCaptureManager = com.livetrans.overlay.engine.AudioCaptureManager(
-            this,
-            onAudioDbLevel = { db ->
-                if (db > 34f && !isPaused) {
-                    val bars = when {
-                        db > 62f -> " ▂▃▅▆▇"
-                        db > 48f -> " ▂▃▅"
-                        else -> " ▂"
-                    }
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        if (tvStatusHint?.text?.contains("正在极速翻译") != true) {
-                            tvStatusHint?.text = "🎤 声音捕获中: [$bars ${db.toInt()}dB]"
-                        }
-                    }
-                }
-            }
-        )
-        val audioSource = app.appPreferences.loadAudioSource()
-        serviceScope.launch {
-            if (audioSource == com.livetrans.overlay.data.AudioSourceType.SYSTEM_INTERNAL && projectionData != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                try {
-                    val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? android.media.projection.MediaProjectionManager
-                    val mediaProjection = mediaProjectionManager?.getMediaProjection(projectionResultCode, projectionData!!)
-                    audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.SYSTEM_INTERNAL, mediaProjection)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to start internal audio playback capture", e)
-                    audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.MIC)
-                }
-            } else {
-                audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.MIC)
+        var mediaProjection: android.media.projection.MediaProjection? = null
+        if (audioSource == AudioSourceType.SYSTEM_INTERNAL && projectionData != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? android.media.projection.MediaProjectionManager
+                mediaProjection = mediaProjectionManager?.getMediaProjection(projectionResultCode, projectionData!!)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get MediaProjection", e)
             }
         }
 
-        speechEngine.startListening(
-            src,
-            onPartialResult = ::onSpeechResult,
-            onFinalResult = ::onSpeechResult,
-            onError = ::onSpeechError
-        )
-    }
-
-    private fun restartSpeechEngine(language: Language) {
-        speechEngine.stopListening()
-        speechEngine.startListening(
-            language,
-            onPartialResult = ::onSpeechResult,
-            onFinalResult = ::onSpeechResult,
-            onError = ::onSpeechError
-        )
+        speechRecognitionManager?.start(src, audioSource, mediaProjection)
     }
 
     private fun onSpeechResult(text: String) {
         if (isPaused || text.isBlank()) return
 
         tvOriginal?.text = text
-        tvStatusHint?.text = "⚡ 正在极速翻译中…"
+        tvStatusHint?.text = "⚡ 正在极速同传翻译…"
 
         lastTranslateJob?.cancel()
         lastTranslateJob = serviceScope.launch {
-            delay(100)
+            delay(80)
             val app = application as LiveTransApplication
             val src = app.appPreferences.loadSourceLanguage()
             val tgt = app.appPreferences.loadTargetLanguage()
@@ -652,7 +645,7 @@ class LiveSubtitleService : Service() {
             withContext(Dispatchers.Main) {
                 if (result.isSuccess && !result.getOrNull().isNullOrBlank()) {
                     tvTranslated?.text = result.getOrNull()
-                    tvStatusHint?.text = "✔ 同传已就绪 · ${app.appPreferences.loadEngineType().name}"
+                    tvStatusHint?.text = "✔ 同传已就绪 · ${app.appPreferences.loadEngineType().displayName}"
                 } else {
                     val errMsg = result.exceptionOrNull()?.message ?: "未知错误"
                     Log.w(TAG, "Translation error: $errMsg")
@@ -663,20 +656,14 @@ class LiveSubtitleService : Service() {
         }
     }
 
-    private fun onSpeechError(error: String) {
-        Log.w(TAG, "ASR Error: $error")
-        tvStatusHint?.text = "🎤 语音监听提示: $error (可在主页测试台模拟发送)"
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         try {
             unregisterReceiver(testReceiver)
         } catch (_: Exception) {}
 
-        speechEngine.destroy()
-        audioCaptureManager?.stopCapture()
-        audioCaptureManager = null
+        speechRecognitionManager?.destroy()
+        speechRecognitionManager = null
         translationEngineManager.close()
 
         overlayView?.let { view ->

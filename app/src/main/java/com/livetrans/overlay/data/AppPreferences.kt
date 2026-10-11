@@ -20,6 +20,11 @@ enum class TranslationEngineType(val displayName: String, val isLocalOffline: Bo
     CLOUD_DEEPL("DeepL API", false)
 }
 
+enum class AsrEngineType(val displayName: String, val description: String) {
+    AUTO_CLOUD("极速云端 ASR (推荐·支持系统声音/外放)", "使用 SenseVoice / Whisper 毫秒级识别，支持外放及系统内录音频"),
+    SYSTEM_STT("系统内置语音识别 (免Key·需系统语音包)", "仅支持麦克风拾音，依赖系统 SpeechRecognizer 引擎")
+}
+
 class AppPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("livetrans_settings", Context.MODE_PRIVATE)
 
@@ -37,6 +42,9 @@ class AppPreferences(context: Context) {
 
     private val _engineTypeFlow = MutableStateFlow(loadEngineType())
     val engineTypeFlow: StateFlow<TranslationEngineType> = _engineTypeFlow.asStateFlow()
+
+    private val _asrEngineTypeFlow = MutableStateFlow(loadAsrEngineType())
+    val asrEngineTypeFlow: StateFlow<AsrEngineType> = _asrEngineTypeFlow.asStateFlow()
 
     private val _isLightThemeFlow = MutableStateFlow(prefs.getBoolean("app_light_theme", true))
     val isLightThemeFlow: StateFlow<Boolean> = _isLightThemeFlow.asStateFlow()
@@ -128,7 +136,34 @@ class AppPreferences(context: Context) {
         _engineTypeFlow.value = type
     }
 
-    // Cloud API settings
+    fun loadAsrEngineType(): AsrEngineType {
+        val name = prefs.getString("asr_engine_type", AsrEngineType.AUTO_CLOUD.name)
+        return try {
+            AsrEngineType.valueOf(name ?: AsrEngineType.AUTO_CLOUD.name)
+        } catch (_: Exception) {
+            AsrEngineType.AUTO_CLOUD
+        }
+    }
+
+    fun setAsrEngineType(type: AsrEngineType) {
+        prefs.edit().putString("asr_engine_type", type.name).apply()
+        _asrEngineTypeFlow.value = type
+    }
+
+    // Cloud ASR (Speech-to-Text) settings
+    var asrApiKey: String
+        get() = prefs.getString("asr_api_key", "") ?: ""
+        set(value) = prefs.edit().putString("asr_api_key", value).apply()
+
+    var asrBaseUrl: String
+        get() = prefs.getString("asr_base_url", "https://api.siliconflow.cn/v1") ?: "https://api.siliconflow.cn/v1"
+        set(value) = prefs.edit().putString("asr_base_url", value).apply()
+
+    var asrModelName: String
+        get() = prefs.getString("asr_model_name", "FunAudioLLM/SenseVoiceSmall") ?: "FunAudioLLM/SenseVoiceSmall"
+        set(value) = prefs.edit().putString("asr_model_name", value).apply()
+
+    // Cloud Translation API settings
     var deepLApiKey: String
         get() = prefs.getString("deepl_api_key", "") ?: ""
         set(value) = prefs.edit().putString("deepl_api_key", value).apply()

@@ -14,7 +14,7 @@ import com.livetrans.overlay.data.Language
 /**
  * Android system native SpeechRecognizer implementation.
  * Supports English, Japanese, and Chinese real-time partial streaming.
- * Automatically loops and continues listening for live simultaneous translation.
+ * Uses onRmsChanged directly for dB feedback to avoid microphone resource collision.
  */
 class AndroidSystemSpeechEngine(
     private val context: Context
@@ -29,6 +29,7 @@ class AndroidSystemSpeechEngine(
     private var onPartialResultCallback: ((String) -> Unit)? = null
     private var onFinalResultCallback: ((String) -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
+    var onRmsLevelCallback: ((Float) -> Unit)? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -52,38 +53,39 @@ class AndroidSystemSpeechEngine(
     private fun initAndStartRecognizer() {
         if (!isListening) return
 
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            onErrorCallback?.invoke("当前设备系统未开启语音识别服务")
-            return
-        }
-
-        speechRecognizer?.destroy()
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-            setRecognitionListener(createListener())
-        }
-
-        val localeTag = when (currentLanguage) {
-            Language.CHINESE -> "zh-CN"
-            Language.ENGLISH -> "en-US"
-            Language.JAPANESE -> "ja-JP"
-        }
-
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500L)
-            putExtra("android.speech.extra.DICTATION_MODE", true)
-        }
-
         try {
+            if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+                onErrorCallback?.invoke("当前手机系统未内置语音识别服务，建议使用云端 ASR (SenseVoice)")
+                return
+            }
+
+            speechRecognizer?.destroy()
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                setRecognitionListener(createListener())
+            }
+
+            val localeTag = when (currentLanguage) {
+                Language.CHINESE -> "zh-CN"
+                Language.ENGLISH -> "en-US"
+                Language.JAPANESE -> "ja-JP"
+            }
+
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                putExtra("android.speech.extra.DICTATION_MODE", true)
+            }
+
             speechRecognizer?.startListening(intent)
             Log.d(TAG, "Started speech recognition for language: $localeTag")
         } catch (e: Exception) {
             Log.e(TAG, "Error starting speech recognition", e)
+            onErrorCallback?.invoke("启动语音识别失败: ${e.message}")
             restartListeningDelayed(1000)
         }
     }
@@ -92,28 +94,41 @@ class AndroidSystemSpeechEngine(
         return object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {}
             override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
+
+            override fun onRmsChanged(rmsdB: Float) {
+                if (rmsdB > 0f) {
+                    val mappedDb = (rmsdB * 4.5f + 32f).coerceIn(20f, 95f)
+                    onRmsLevelCallback?.invoke(mappedDb)
+                }
+            }
+
             override fun onBufferReceived(buffer: ByteArray?) {}
 
             override fun onEndOfSpeech() {
-                // Speech ended for the segment, auto restart to keep live stream going
                 if (isListening) {
-                    restartListeningDelayed(200)
+                    restartListeningDelayed(150)
                 }
             }
 
             override fun onError(error: Int) {
                 val errorMsg = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH -> "未匹配到语音"
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "语音输入超时"
+                    SpeechRecognizer.ERROR_NO_MATCH -> "未匹配到有效语音"
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "等待语音输入超时"
                     SpeechRecognizer.ERROR_NETWORK -> "网络连接异常"
-                    SpeechRecognizer.ERROR_AUDIO -> "音频录制错误"
-                    else -> "识别状态码: $error"
+                    SpeechRecognizer.ERROR_AUDIO -> "音频录制错误 (麦克风可能被其他应用占用)"
+                    SpeechRecognizer.ERROR_CLIENT -> "系统语音服务异常 (国内手机建议使用 SenseVoice 云端 ASR)"
+                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "缺少录音权限"
+                    else -> "系统识别状态码: $error"
                 }
                 Log.w(TAG, "SpeechRecognizer error: $errorMsg ($error)")
 
+                if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    onErrorCallback?.invoke(errorMsg)
+                }
+
                 if (isListening) {
-                    restartListeningDelayed(400)
+                    val delay = if (error == SpeechRecognizer.ERROR_NO_MATCH || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) 200L else 1000L
+                    restartListeningDelayed(delay)
                 }
             }
 
