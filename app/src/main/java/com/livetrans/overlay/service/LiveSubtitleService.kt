@@ -272,6 +272,15 @@ class LiveSubtitleService : Service() {
     }
 
     private fun setupButtonControls() {
+        tvLanguageBadge?.setOnClickListener {
+            val app = application as LiveTransApplication
+            val curSrc = app.appPreferences.loadSourceLanguage()
+            val curTgt = app.appPreferences.loadTargetLanguage()
+            app.appPreferences.setSourceLanguage(curTgt)
+            app.appPreferences.setTargetLanguage(curSrc)
+            tvStatusHint?.text = "🔄 已反转语种方向: ${curTgt.shortCode} ➔ ${curSrc.shortCode}"
+        }
+
         btnFold?.setOnClickListener {
             toggleFoldState()
         }
@@ -394,6 +403,8 @@ class LiveSubtitleService : Service() {
         tvLanguageBadge?.text = "${sourceLang.shortCode} ➔ ${targetLang.shortCode}"
     }
 
+    private var audioCaptureManager: com.livetrans.overlay.engine.AudioCaptureManager? = null
+
     private fun startRecognitionPipeline() {
         val app = application as LiveTransApplication
         val src = app.appPreferences.loadSourceLanguage()
@@ -402,6 +413,28 @@ class LiveSubtitleService : Service() {
 
         serviceScope.launch {
             translationEngineManager.prepareCurrentEngine(src, tgt)
+        }
+
+        // Start real-time audio energy meter for visual sound feedback
+        audioCaptureManager = com.livetrans.overlay.engine.AudioCaptureManager(
+            this,
+            onAudioDbLevel = { db ->
+                if (db > 34f && !isPaused) {
+                    val bars = when {
+                        db > 62f -> " ▂▃▅▆▇"
+                        db > 48f -> " ▂▃▅"
+                        else -> " ▂"
+                    }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        if (tvStatusHint?.text?.contains("正在极速翻译") != true) {
+                            tvStatusHint?.text = "🎤 声音捕获中: [$bars ${db.toInt()}dB]"
+                        }
+                    }
+                }
+            }
+        )
+        serviceScope.launch {
+            audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.MIC)
         }
 
         speechEngine.startListening(
@@ -462,6 +495,8 @@ class LiveSubtitleService : Service() {
         } catch (_: Exception) {}
 
         speechEngine.destroy()
+        audioCaptureManager?.stopCapture()
+        audioCaptureManager = null
         translationEngineManager.close()
 
         overlayView?.let { view ->

@@ -15,15 +15,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import kotlin.math.log10
+import kotlin.math.sqrt
 
 /**
  * Manages raw audio recording:
  * 1. Microphone capture (external voice / face-to-face)
  * 2. System Audio Loopback capture (via AudioPlaybackCapture API on Android 10+ MediaProjection)
+ * 3. Real-time audio amplitude and decibel calculation for live visual feedback
  */
 class AudioCaptureManager(
     private val context: Context,
-    private val onAudioChunkReady: (ByteArray, Int) -> Unit
+    private val onAudioChunkReady: (ByteArray, Int) -> Unit = { _, _ -> },
+    private val onAudioDbLevel: (Float) -> Unit = {}
 ) {
 
     private var audioRecord: AudioRecord? = null
@@ -37,11 +41,8 @@ class AudioCaptureManager(
         sampleRate,
         channelConfig,
         audioFormat
-    ).coerceAtLeast(sampleRate * 2) // at least 1-2 sec buffer
+    ).coerceAtLeast(sampleRate * 2)
 
-    /**
-     * Starts audio capture based on chosen source mode.
-     */
     @SuppressLint("MissingPermission")
     suspend fun startCapture(
         sourceType: AudioSourceType,
@@ -77,6 +78,18 @@ class AudioCaptureManager(
                 val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                 if (bytesRead > 0) {
                     onAudioChunkReady(buffer, bytesRead)
+
+                    // Calculate real-time decibels (dB)
+                    var sum = 0.0
+                    val samples = bytesRead / 2
+                    for (i in 0 until bytesRead step 2) {
+                        val sample = (buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)
+                        val sampleShort = sample.toShort()
+                        sum += sampleShort * sampleShort
+                    }
+                    val rms = sqrt(sum / samples.coerceAtLeast(1))
+                    val db = if (rms > 1.0) (20.0 * log10(rms)).toFloat() else 0f
+                    onAudioDbLevel(db)
                 }
             }
 
