@@ -485,11 +485,13 @@ fun HomeScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Text(text = "字幕字体颜色:", color = textSecondary, fontSize = 11.sp)
+                    Text(text = "字幕字体颜色 (10款预设 + 自定义色值):", color = textSecondary, fontSize = 11.sp)
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .androidx.compose.foundation.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         SubtitleStyle.PRESET_COLORS.forEach { colorInt ->
                             val composeColor = Color(colorInt)
@@ -506,6 +508,38 @@ fun HomeScreen(
                                         shape = CircleShape
                                     )
                             )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    var customHexInput by remember { mutableStateOf(String.format("#%06X", 0xFFFFFF and currentStyle.textColor)) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = customHexInput,
+                            onValueChange = { customHexInput = it },
+                            placeholder = { Text("#000000 自定义色", fontSize = 11.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                try {
+                                    val parsed = AndroidColor.parseColor(customHexInput.trim())
+                                    appPreferences.updateSubtitleStyle(currentStyle.copy(textColor = parsed))
+                                    Toast.makeText(context, "颜色已更新", Toast.LENGTH_SHORT).show()
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "色值格式错误，请如 #FF0055", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = brandPrimary)
+                        ) {
+                            Text("应用颜色", fontSize = 12.sp)
                         }
                     }
 

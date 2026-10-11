@@ -17,12 +17,16 @@ data class SubtitleStyle(
 ) {
     companion object {
         val PRESET_COLORS = listOf(
-            0xFF000000.toInt(), // Pure Black (Standard for White Background)
-            0xFF2563EB.toInt(), // Deep Blue
-            0xFFFACC15.toInt(), // High-Vis Yellow
-            0xFFFFFFFF.toInt(), // Pure White
-            0xFF10B981.toInt(), // Emerald Green
-            0xFFEF4444.toInt()  // Coral Red
+            0xFF000000.toInt(), // 纯黑 (白底首选)
+            0xFFFACC15.toInt(), // 荧光黄 (黑底首选)
+            0xFF2563EB.toInt(), // 科技蓝
+            0xFF10B981.toInt(), // 翡翠绿
+            0xFFEF4444.toInt(), // 鲜亮红
+            0xFF8B5CF6.toInt(), // 优雅紫
+            0xFFF97316.toInt(), // 活力橙
+            0xFFEC4899.toInt(), // 芭比粉
+            0xFF06B6D4.toInt(), // 赛博青
+            0xFFFFFFFF.toInt()  // 纯白
         )
 
         val PRESET_BG_STYLES = listOf(
