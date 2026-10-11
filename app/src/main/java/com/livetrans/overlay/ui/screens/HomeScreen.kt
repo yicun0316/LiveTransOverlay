@@ -320,7 +320,7 @@ fun HomeScreen(
                             selected = baseUrlInput.contains("googleapis"),
                             onClick = {
                                 baseUrlInput = "https://generativelanguage.googleapis.com/v1beta/openai"
-                                modelInput = "gemini-1.5-flash"
+                                modelInput = "gemini-3.5-flash"
                             },
                             label = { Text("🌐 Google Gemini (官方免费)", fontSize = 10.sp) }
                         )
