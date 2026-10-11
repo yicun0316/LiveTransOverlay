@@ -30,10 +30,11 @@ class MainActivity : ComponentActivity() {
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == RESULT_OK) {
-            launchSubtitleService()
+        if (result.resultCode == RESULT_OK && result.data != null) {
+            launchSubtitleService(result.resultCode, result.data)
         } else {
             Toast.makeText(this, "需要系统录音授权以捕获内录音频", Toast.LENGTH_SHORT).show()
+            launchSubtitleService() // Fallback to mic
         }
     }
 
@@ -108,10 +109,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun launchSubtitleService() {
-        LiveSubtitleService.start(this)
+    private fun launchSubtitleService(resultCode: Int = 0, projectionData: Intent? = null) {
+        LiveSubtitleService.start(this, resultCode, projectionData)
         isServiceRunning = true
-        Toast.makeText(this, "悬浮同传字幕已开启，已悬浮于屏幕上方", Toast.LENGTH_SHORT).show()
+        val app = application as LiveTransApplication
+        val src = app.appPreferences.loadAudioSource()
+        val hint = if (src == AudioSourceType.SYSTEM_INTERNAL) "无声内录字幕已开启（支持静音看剧/戴耳机）" else "悬浮同传字幕已开启"
+        Toast.makeText(this, hint, Toast.LENGTH_SHORT).show()
     }
 
     private fun stopSubtitleService() {

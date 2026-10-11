@@ -93,6 +93,7 @@ class LiveSubtitleService : Service() {
 
         createFloatingOverlay()
         observeSettings()
+        setupClipboardListener()
         startRecognitionPipeline()
 
         // Register test injection receiver
@@ -101,6 +102,50 @@ class LiveSubtitleService : Service() {
             registerReceiver(testReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             registerReceiver(testReceiver, filter)
+        }
+    }
+
+    private var projectionResultCode: Int = 0
+    private var projectionData: Intent? = null
+    private var lastCopiedText: String = ""
+    private var clipListener: android.content.ClipboardManager.OnPrimaryClipChangedListener? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.let {
+            val code = it.getIntExtra(EXTRA_PROJECTION_RESULT_CODE, 0)
+            val data: Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                it.getParcelableExtra(EXTRA_PROJECTION_DATA, Intent::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                it.getParcelableExtra(EXTRA_PROJECTION_DATA)
+            }
+            if (code != 0 && data != null) {
+                projectionResultCode = code
+                projectionData = data
+                // Re-launch capture with system internal audio
+                startRecognitionPipeline()
+            }
+        }
+        return START_STICKY
+    }
+
+    private fun setupClipboardListener() {
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager ?: return
+            clipListener = android.content.ClipboardManager.OnPrimaryClipChangedListener {
+                val clip = clipboard.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    val text = clip.getItemAt(0).text?.toString()?.trim() ?: ""
+                    if (text.isNotEmpty() && text != lastCopiedText && text.length > 1) {
+                        lastCopiedText = text
+                        tvStatusHint?.text = "📋 捕获到剪贴板文本"
+                        onSpeechResult(text)
+                    }
+                }
+            }
+            clipboard.addPrimaryClipChangedListener(clipListener)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to setup clipboard listener", e)
         }
     }
 
@@ -442,8 +487,20 @@ class LiveSubtitleService : Service() {
                 }
             }
         )
+        val audioSource = app.appPreferences.loadAudioSource()
         serviceScope.launch {
-            audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.MIC)
+            if (audioSource == com.livetrans.overlay.data.AudioSourceType.SYSTEM_INTERNAL && projectionData != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                try {
+                    val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? android.media.projection.MediaProjectionManager
+                    val mediaProjection = mediaProjectionManager?.getMediaProjection(projectionResultCode, projectionData!!)
+                    audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.SYSTEM_INTERNAL, mediaProjection)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start internal audio playback capture", e)
+                    audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.MIC)
+                }
+            } else {
+                audioCaptureManager?.startCapture(com.livetrans.overlay.data.AudioSourceType.MIC)
+            }
         }
 
         speechEngine.startListening(
@@ -527,9 +584,16 @@ class LiveSubtitleService : Service() {
 
         const val ACTION_TEST_SPEECH = "com.livetrans.overlay.ACTION_TEST_SPEECH"
         const val EXTRA_TEXT = "extra_text"
+        const val EXTRA_PROJECTION_RESULT_CODE = "extra_projection_result_code"
+        const val EXTRA_PROJECTION_DATA = "extra_projection_data"
 
-        fun start(context: Context) {
-            val intent = Intent(context, LiveSubtitleService::class.java)
+        fun start(context: Context, resultCode: Int = 0, projectionData: Intent? = null) {
+            val intent = Intent(context, LiveSubtitleService::class.java).apply {
+                if (resultCode != 0 && projectionData != null) {
+                    putExtra(EXTRA_PROJECTION_RESULT_CODE, resultCode)
+                    putExtra(EXTRA_PROJECTION_DATA, projectionData)
+                }
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

@@ -169,6 +169,45 @@ fun HomeScreen(
                 )
             }
 
+            // 0. Audio Source & Silent Subtitle Mode Card (无声字幕 / 内录模式)
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = cardBg),
+                border = androidx.compose.foundation.BorderStroke(1.dp, cardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "声音来源与无声字幕模式",
+                        color = textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "支持手机静音或戴耳机时提取内部声音，外放无声也能照样出字幕",
+                        color = textSecondary,
+                        fontSize = 11.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = audioSource == AudioSourceType.MIC,
+                            onClick = { appPreferences.setAudioSource(AudioSourceType.MIC) },
+                            label = { Text("🎙️ 麦克风拾音 (外放/对话)", fontSize = 11.sp) }
+                        )
+                        FilterChip(
+                            selected = audioSource == AudioSourceType.SYSTEM_INTERNAL,
+                            onClick = { appPreferences.setAudioSource(AudioSourceType.SYSTEM_INTERNAL) },
+                            label = { Text("🔇 无声字幕 (系统内录/静音看剧)", fontSize = 11.sp) }
+                        )
+                    }
+                }
+            }
+
             // 1. Translation Test Workbench (实测测试台)
             Card(
                 shape = RoundedCornerShape(14.dp),
