@@ -312,9 +312,9 @@ fun HomeScreen(
                             selected = baseUrlInput.contains("siliconflow"),
                             onClick = {
                                 baseUrlInput = "https://api.siliconflow.cn/v1"
-                                modelInput = "Qwen/Qwen2.5-7B-Instruct"
+                                modelInput = "deepseek-ai/DeepSeek-V4-Flash"
                             },
-                            label = { Text("⚡ 硅基流动 (国内直连免费)", fontSize = 10.sp) }
+                            label = { Text("⚡ 硅基限免 (DeepSeek-Flash)", fontSize = 10.sp) }
                         )
                         FilterChip(
                             selected = baseUrlInput.contains("googleapis"),
