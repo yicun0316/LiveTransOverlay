@@ -648,3 +648,57 @@ fun HomeScreen(
         }
     }
 }
+
+@Composable
+fun LanguageDropdown(
+    label: String,
+    selected: Language,
+    onSelect: (Language) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Column(modifier = modifier) {
+        Text(text = label, color = Color(0xFF64748B), fontSize = 11.sp)
+        Spacer(modifier = Modifier.height(4.dp))
+        Surface(
+            color = Color(0xFFF1F5F9),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = true }
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = selected.displayName,
+                    color = Color(0xFF0F172A),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = Color(0xFF64748B)
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                Language.values().forEach { lang ->
+                    DropdownMenuItem(
+                        text = { Text(text = "${lang.displayName} (${lang.shortCode})") },
+                        onClick = {
+                            onSelect(lang)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
