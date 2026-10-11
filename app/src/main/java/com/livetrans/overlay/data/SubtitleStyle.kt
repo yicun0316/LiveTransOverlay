@@ -12,8 +12,10 @@ data class SubtitleStyle(
     val enableTextShadow: Boolean = false,
     val isLockedTouchThrough: Boolean = false,
     val windowWidthDp: Int = 340,
-    val windowHeightDp: Int = 150,
-    val isFolded: Boolean = false
+    val windowHeightDp: Int = 160,
+    val isFolded: Boolean = false,
+    val maxHistoryParagraphs: Int = 3, // 1: 单句极简, 2: 2段滚动, 3: 3段标准(默认), 4: 4段长篇
+    val enableSilenceFade: Boolean = true // 静音8秒自动变淡半透明保护
 ) {
     companion object {
         val PRESET_COLORS = listOf(

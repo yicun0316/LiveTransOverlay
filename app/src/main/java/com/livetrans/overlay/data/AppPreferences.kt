@@ -65,8 +65,10 @@ class AppPreferences(context: Context) {
             enableTextShadow = prefs.getBoolean("style_shadow", false),
             isLockedTouchThrough = prefs.getBoolean("style_is_locked", false),
             windowWidthDp = prefs.getInt("style_window_width", 340),
-            windowHeightDp = prefs.getInt("style_window_height", 150),
-            isFolded = prefs.getBoolean("style_is_folded", false)
+            windowHeightDp = prefs.getInt("style_window_height", 160),
+            isFolded = prefs.getBoolean("style_is_folded", false),
+            maxHistoryParagraphs = prefs.getInt("style_max_history", 3),
+            enableSilenceFade = prefs.getBoolean("style_silence_fade", true)
         )
     }
 
@@ -83,6 +85,8 @@ class AppPreferences(context: Context) {
             putInt("style_window_width", style.windowWidthDp)
             putInt("style_window_height", style.windowHeightDp)
             putBoolean("style_is_folded", style.isFolded)
+            putInt("style_max_history", style.maxHistoryParagraphs)
+            putBoolean("style_silence_fade", style.enableSilenceFade)
             apply()
         }
         _styleFlow.value = style

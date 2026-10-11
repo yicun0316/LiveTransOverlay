@@ -84,42 +84,61 @@
     <LinearLayout
         android:id="@+id/contentContainer"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:layout_below="@id/headerControlBar"
         android:orientation="vertical">
 
-        <!-- Original Speech Text (Optional / Configurable) -->
-        <TextView
-            android:id="@+id/tvOriginalText"
+        <!-- Scrollable Rolling Subtitle History Container -->
+        <ScrollView
+            android:id="@+id/scrollSubtitleContainer"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="等待语音输入中…"
-            android:textColor="#94A3B8"
-            android:textSize="13sp"
-            android:lineSpacingExtra="2dp"
-            android:layout_marginBottom="4dp" />
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:overScrollMode="never"
+            android:scrollbars="none">
 
-        <!-- Real-Time Translated Subtitle (Prominent, High-Contrast) -->
-        <TextView
-            android:id="@+id/tvTranslatedText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="正在聆听并实时同传中…"
-            android:textColor="#FACC15"
-            android:textSize="17sp"
-            android:textStyle="bold"
-            android:lineSpacingExtra="3dp"
-            android:shadowColor="#000000"
-            android:shadowDx="2"
-            android:shadowDy="2"
-            android:shadowRadius="4" />
+            <LinearLayout
+                android:id="@+id/llParagraphContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="bottom">
+
+                <!-- Original Speech Text (Optional / Configurable) -->
+                <TextView
+                    android:id="@+id/tvOriginalText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="等待语音输入中…"
+                    android:textColor="#94A3B8"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="2dp"
+                    android:layout_marginBottom="4dp" />
+
+                <!-- Real-Time Translated Subtitle (Prominent, High-Contrast) -->
+                <TextView
+                    android:id="@+id/tvTranslatedText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="正在聆听并实时同传中…"
+                    android:textColor="#FACC15"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:lineSpacingExtra="3dp"
+                    android:shadowColor="#000000"
+                    android:shadowDx="2"
+                    android:shadowDy="2"
+                    android:shadowRadius="4" />
+            </LinearLayout>
+        </ScrollView>
 
         <!-- Live Status & Diagnostic Hint Bar -->
         <TextView
             android:id="@+id/tvStatusHint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="🎤 监听麦克风中 · 点击主页可模拟测试"
+            android:text="🎤 正在监听音频流 · 说话即翻"
             android:textColor="#64748B"
             android:textSize="10sp"
             android:layout_marginTop="4dp" />

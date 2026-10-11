@@ -1388,6 +1388,53 @@ fun HomeScreen(
                         valueRange = 14f..28f,
                         steps = 7
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(text = "同传字幕呈现模式 (段落移动保留):", color = textSecondary, fontSize = 11.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        FilterChip(
+                            selected = currentStyle.maxHistoryParagraphs == 1,
+                            onClick = { appPreferences.updateSubtitleStyle(currentStyle.copy(maxHistoryParagraphs = 1)) },
+                            label = { Text("单句极简 (1段)", fontSize = 10.sp) }
+                        )
+                        FilterChip(
+                            selected = currentStyle.maxHistoryParagraphs == 2,
+                            onClick = { appPreferences.updateSubtitleStyle(currentStyle.copy(maxHistoryParagraphs = 2)) },
+                            label = { Text("2段滚动", fontSize = 10.sp) }
+                        )
+                        FilterChip(
+                            selected = currentStyle.maxHistoryParagraphs == 3,
+                            onClick = { appPreferences.updateSubtitleStyle(currentStyle.copy(maxHistoryParagraphs = 3)) },
+                            label = { Text("3段推移 (推荐)", fontSize = 10.sp) }
+                        )
+                        FilterChip(
+                            selected = currentStyle.maxHistoryParagraphs == 4,
+                            onClick = { appPreferences.updateSubtitleStyle(currentStyle.copy(maxHistoryParagraphs = 4)) },
+                            label = { Text("4段长文", fontSize = 10.sp) }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "静音自动淡化保护", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Text(text = "连续8秒无声音时文字变淡半透明，避免遮挡视频画面", color = textSecondary, fontSize = 10.sp)
+                        }
+                        Switch(
+                            checked = currentStyle.enableSilenceFade,
+                            onCheckedChange = { appPreferences.updateSubtitleStyle(currentStyle.copy(enableSilenceFade = it)) }
+                        )
+                    }
                 }
             }
 

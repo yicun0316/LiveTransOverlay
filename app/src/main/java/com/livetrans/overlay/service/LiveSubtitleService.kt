@@ -23,6 +23,8 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -69,6 +71,32 @@ class LiveSubtitleService : Service() {
     private var btnClose: ImageView? = null
     private var ivResizeHandle: ImageView? = null
     private var rootContainer: View? = null
+    private var contentContainer: View? = null
+    private var scrollSubtitleContainer: ScrollView? = null
+    private var llParagraphContainer: LinearLayout? = null
+
+    data class SubtitleHistoryItem(
+        val original: String,
+        val translated: String
+    )
+    private val subtitleHistory = mutableListOf<SubtitleHistoryItem>()
+
+    private val silenceHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val silenceFadeRunnable = Runnable {
+        val app = application as? LiveTransApplication ?: return@Runnable
+        val style = app.appPreferences.loadSubtitleStyle()
+        if (style.enableSilenceFade && !isPaused && !isFolded) {
+            contentContainer?.animate()?.alpha(0.35f)?.setDuration(600)?.start()
+        }
+    }
+
+    private fun resetSilenceFadeTimer() {
+        silenceHandler.removeCallbacks(silenceFadeRunnable)
+        if ((contentContainer?.alpha ?: 1f) < 0.95f) {
+            contentContainer?.animate()?.alpha(1.0f)?.setDuration(200)?.start()
+        }
+        silenceHandler.postDelayed(silenceFadeRunnable, 8000L)
+    }
 
     // Broadcast receiver for test speech injection
     private val testReceiver = object : BroadcastReceiver() {
@@ -93,6 +121,9 @@ class LiveSubtitleService : Service() {
             onSpeechTextRecognized = ::onSpeechResult,
             onAudioDbLevel = { db ->
                 if (db > 34f && !isPaused) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        resetSilenceFadeTimer()
+                    }
                     val bars = when {
                         db > 62f -> " ▂▃▅▆▇"
                         db > 48f -> " ▂▃▅"
@@ -246,6 +277,9 @@ class LiveSubtitleService : Service() {
 
         overlayView?.let { view ->
             rootContainer = view.findViewById(R.id.rootOverlayContainer)
+            contentContainer = view.findViewById(R.id.contentContainer)
+            scrollSubtitleContainer = view.findViewById(R.id.scrollSubtitleContainer)
+            llParagraphContainer = view.findViewById(R.id.llParagraphContainer)
             tvOriginal = view.findViewById(R.id.tvOriginalText)
             tvTranslated = view.findViewById(R.id.tvTranslatedText)
             tvLanguageBadge = view.findViewById(R.id.tvLanguageBadge)
@@ -495,6 +529,8 @@ class LiveSubtitleService : Service() {
             layoutParams.width = (style.windowWidthDp * density).toInt()
         }
         overlayView?.let { windowManager.updateViewLayout(it, layoutParams) }
+        val curStyle = (application as LiveTransApplication).appPreferences.loadSubtitleStyle()
+        renderSubtitleParagraphs(curStyle)
     }
 
     private fun toggleTouchLock() {
@@ -542,6 +578,105 @@ class LiveSubtitleService : Service() {
             app.appPreferences.asrEngineTypeFlow.collectLatest {
                 startRecognitionPipeline()
             }
+        }
+    }
+
+    private fun renderSubtitleParagraphs(style: SubtitleStyle) {
+        val container = llParagraphContainer ?: return
+        container.removeAllViews()
+
+        val isWhiteBg = (style.backgroundColor == Color.WHITE || style.backgroundColor == 0xFFFFFFFF.toInt())
+        val primaryTextColor = if (isWhiteBg && (style.textColor == Color.WHITE || style.textColor == 0xFFFFFFFF.toInt())) {
+            Color.parseColor("#0F172A")
+        } else {
+            style.textColor
+        }
+
+        val primaryOrigColor = if (isWhiteBg && (style.originalTextColor == Color.WHITE || style.originalTextColor == 0xFFFFFFFF.toInt())) {
+            Color.parseColor("#475569")
+        } else {
+            style.originalTextColor
+        }
+
+        val shadowColor = if (isWhiteBg) Color.parseColor("#33000000") else Color.BLACK
+
+        if (subtitleHistory.isEmpty()) {
+            if (style.showOriginalText && !isFolded) {
+                val tvOrig = TextView(this).apply {
+                    text = "等待语音输入中…"
+                    setTextColor(primaryOrigColor)
+                    textSize = style.originalTextSizeSp
+                }
+                container.addView(tvOrig)
+            }
+            val tvTrans = TextView(this).apply {
+                text = "正在聆听并实时同传中…"
+                setTextColor(primaryTextColor)
+                textSize = style.textSizeSp
+                setTypeface(null, android.graphics.Typeface.BOLD)
+                if (style.enableTextShadow) {
+                    setShadowLayer(4f, 2f, 2f, shadowColor)
+                }
+            }
+            container.addView(tvTrans)
+            return
+        }
+
+        val total = subtitleHistory.size
+        for (i in 0 until total) {
+            val item = subtitleHistory[i]
+            val isLatest = (i == total - 1)
+            val stepBack = total - 1 - i // 0: 最新, 1: 上一句, 2: 历史句子
+
+            // 折叠状态仅展示最新单行
+            if (isFolded && !isLatest) continue
+
+            // 越新的段落越醒目，历史段落自然微暗
+            val paragraphAlpha = when (stepBack) {
+                0 -> 1.0f
+                1 -> 0.72f
+                else -> 0.48f
+            }
+
+            val itemLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                alpha = paragraphAlpha
+                val bottomMargin = if (isLatest) 0 else (6 * resources.displayMetrics.density).toInt()
+                setPadding(0, 0, 0, bottomMargin)
+            }
+
+            // 原文 (若开启显示)
+            if (style.showOriginalText && !isFolded && item.original.isNotBlank()) {
+                val tvOrig = TextView(this).apply {
+                    text = item.original
+                    setTextColor(primaryOrigColor)
+                    textSize = if (isLatest) style.originalTextSizeSp else (style.originalTextSizeSp * 0.92f).coerceAtLeast(11f)
+                    setLineSpacing(2f, 1f)
+                }
+                itemLayout.addView(tvOrig)
+            }
+
+            // 译文 (核心高亮)
+            val tvTrans = TextView(this).apply {
+                text = item.translated
+                setTextColor(primaryTextColor)
+                textSize = if (isLatest) style.textSizeSp else (style.textSizeSp * 0.90f).coerceAtLeast(13f)
+                if (isLatest) {
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                }
+                setLineSpacing(3f, 1f)
+                if (style.enableTextShadow) {
+                    setShadowLayer(4f, 2f, 2f, shadowColor)
+                }
+            }
+            itemLayout.addView(tvTrans)
+
+            container.addView(itemLayout)
+        }
+
+        // 平滑向下滚动到最新句子
+        scrollSubtitleContainer?.post {
+            scrollSubtitleContainer?.fullScroll(View.FOCUS_DOWN)
         }
     }
 
@@ -597,6 +732,7 @@ class LiveSubtitleService : Service() {
             }
             root.background = bg
         }
+        renderSubtitleParagraphs(style)
     }
 
     private fun updateLanguageBadge(sourceLang: Language, targetLang: Language) {
@@ -631,7 +767,7 @@ class LiveSubtitleService : Service() {
     private fun onSpeechResult(text: String) {
         if (isPaused || text.isBlank()) return
 
-        tvOriginal?.text = text
+        resetSilenceFadeTimer()
         tvStatusHint?.text = "⚡ 正在极速同传翻译…"
 
         lastTranslateJob?.cancel()
@@ -640,24 +776,36 @@ class LiveSubtitleService : Service() {
             val app = application as LiveTransApplication
             val src = app.appPreferences.loadSourceLanguage()
             val tgt = app.appPreferences.loadTargetLanguage()
+            val style = app.appPreferences.loadSubtitleStyle()
 
             val result = translationEngineManager.translate(text, src, tgt)
             withContext(Dispatchers.Main) {
-                if (result.isSuccess && !result.getOrNull().isNullOrBlank()) {
-                    tvTranslated?.text = result.getOrNull()
+                val transText = if (result.isSuccess && !result.getOrNull().isNullOrBlank()) {
                     tvStatusHint?.text = "✔ 同传已就绪 · ${app.appPreferences.loadEngineType().displayName}"
+                    result.getOrNull()!!
                 } else {
                     val errMsg = result.exceptionOrNull()?.message ?: "未知错误"
                     Log.w(TAG, "Translation error: $errMsg")
-                    tvTranslated?.text = "【翻译异常: $errMsg】"
                     tvStatusHint?.text = "⚠️ 翻译未成功，可前往主界面切换引擎"
+                    "【翻译异常: $errMsg】"
                 }
+
+                // 滚动段落模型：追加新句子并移出超出限制的最老句子
+                val maxParagraphs = style.maxHistoryParagraphs.coerceAtLeast(1)
+                subtitleHistory.add(SubtitleHistoryItem(text, transText))
+                while (subtitleHistory.size > maxParagraphs) {
+                    subtitleHistory.removeAt(0)
+                }
+
+                renderSubtitleParagraphs(style)
+                resetSilenceFadeTimer()
             }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        silenceHandler.removeCallbacks(silenceFadeRunnable)
         try {
             unregisterReceiver(testReceiver)
         } catch (_: Exception) {}
